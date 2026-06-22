@@ -15,7 +15,7 @@ import io
 st.set_page_config(page_title="B2B全球智能获客地图", layout="wide")
 st.title("🌍 汽车维修专用工具 · 全球B2B精准获客系统")
 
-# ==================== 多语言包（同之前，不重复占篇幅） ====================
+# ==================== 多语言包 ====================
 BUILTIN_LANGUAGES = {
     "德国": {
         "lang_code": "de", "country_code": "de",
@@ -91,7 +91,7 @@ BUILTIN_LANGUAGES = {
 
 ALL_COUNTRIES = list(BUILTIN_LANGUAGES.keys()) + ["🌐 自定义"]
 
-# ==================== PDF 解析（支持扫描件OCR） ====================
+# ==================== PDF 解析（支持中英文扫描件OCR） ====================
 def extract_text_from_pdf(pdf_file):
     try:
         reader = PyPDF2.PdfReader(pdf_file)
@@ -103,13 +103,14 @@ def extract_text_from_pdf(pdf_file):
     except:
         pass
 
-    # 文本为空，启动OCR
+    # 文本为空，启动OCR（语言含中文简体和英文）
     try:
         pdf_file.seek(0)
         images = convert_from_bytes(pdf_file.read(), dpi=300)
         ocr_text = ""
         for img in images:
-            ocr_text += pytesseract.image_to_string(img, lang='eng+deu+fra+spa+por') + "\n"
+            # ★ 这里已加入 chi_sim（简体中文）★
+            ocr_text += pytesseract.image_to_string(img, lang='eng+chi_sim+deu+fra+spa+por') + "\n"
         if ocr_text.strip():
             return ocr_text.strip()
     except Exception as e:
