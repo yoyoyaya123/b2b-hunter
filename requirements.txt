@@ -5,6 +5,5 @@ lxml
 googlesearch-python>=1.3.0
 pandas
 PyPDF2
-geopy
 pytesseract
 pdf2image
