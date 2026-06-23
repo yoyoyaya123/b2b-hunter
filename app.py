@@ -8,261 +8,88 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from ddgs import DDGS
 
-st.set_page_config(page_title="B2B全球精准获客-汽保工具", layout="wide")
-st.title("🔧 汽车维修专用工具 · 全球B2B精准客户搜索（精准版）")
+st.set_page_config(page_title="JYTOOL 汽保工具 B2B 精准获客", layout="wide")
+st.title("🔧 JYTOOL 汽保工具 · 全球 B2B 经销商精准搜索")
+st.markdown("🎯 **搜索逻辑**: 针对全球汽保设备经销商、工具专卖店。只要目标网站包含我们目录中的 **1~3 款** 核心产品，即判定为高意向潜客！")
 
-# ==================== 全球9国产品线配置 ====================
+# ==================== 全球9国产品线配置 (严格对齐JYTOOL PDF目录) ====================
 COUNTRY_CONFIG = {
-    "德国": {
-        "lang": "de", "country": "de", "region": "de-de",
-        "cities": ["Berlin", "Hamburg", "München", "Frankfurt", "Stuttgart", "Köln", "Düsseldorf"],
-        "role_words": ["Großhandel", "Großhändler", "Importeur", "Import", "Distributor", "Händler", "Lieferant", "Fachhandel"],
-        "exclude_words": ["Werkstatt", "Reparatur", "Service-Center", "Autohaus", "Reifenservice", "Karosseriebau", "Lackiererei", "Tuning"],
+    "英国/美国/斯里兰卡等(英文区)": {
+        "region": "us-en",
+        "cities": ["London", "New York", "Los Angeles", "Colombo", "Sydney", "Dubai", "Johannesburg"],
+        "role_words": ["wholesaler", "distributor", "supplier", "dealer", "tool store", "garage equipment", "auto parts", "diagnostic"],
+        "exclude_words": ["auto repair shop", "repair service", "body shop", "car wash", "towing service", "oil change", "mobile mechanic"],
         "product_lines": {
-            "空调/冷却系统": {
-                "search": ["Kühlsystem-Dichtheitsprüfer", "Klimaservice-Werkzeug", "Klimaanlagen-Reparaturwerkzeug", "Kältemittel-Füllschlauch", "Klima-Lecksuchgerät"],
-                "evidence": ["Kühlsystem-Dichtheitsprüfer", "Klimaservice-Werkzeug", "Klimaanlagen-Reparaturwerkzeug", "Kältemittel", "Klima-Lecksuchgerät", "Klimaservice-Station"]
-            },
-            "仪表检测工具": {
-                "search": ["Zylinderdruckprüfer", "Kraftstoffdruckmessgerät", "Dieseleinspritzung-Tester", "Motor-Diagnosegerät", "Unterdruckmanometer", "Abgasgegendruckprüfer"],
-                "evidence": ["Zylinderdruckprüfer", "Kraftstoffdruckmessgerät", "Dieseleinspritzung-Tester", "Motor-Diagnosegerät", "Kompressionstester", "Einspritzdüsen-Tester"]
-            },
-            "刹车/底盘/结构": {
-                "search": ["Bremskolbenrückstellsatz", "Fahrwerk-Reparaturwerkzeug", "Kugelgelenkabzieher", "Kupplungszentrierwerkzeug", "Radlager-Abzieher-Set", "Stoßdämpfer-Montagewerkzeug"],
-                "evidence": ["Bremskolbenrückstellsatz", "Fahrwerk-Reparaturwerkzeug", "Kugelgelenkabzieher", "Kupplungszentrierwerkzeug", "Radlager-Abzieher", "Stoßdämpfer-Montagewerkzeug"]
-            },
-            "液体更换/系统维护": {
-                "search": ["Bremsenentlüftungsgerät", "Kühlmittel-Befüllset", "Bremsflüssigkeitswechsler", "Kältemittelöl-Einfüllwerkzeug", "Absaug- und Einfüllspritze"],
-                "evidence": ["Bremsenentlüftungsgerät", "Kühlmittel-Befüllset", "Bremsflüssigkeitswechsler", "Kältemittelöl-Einfüllwerkzeug", "Absaugspritze", "Entlüftungsgerät"]
-            },
-            "内饰撬棒/卡扣耗材": {
-                "search": ["Kunststoff-Nylon-Hebel-Set", "Auto-Clip-Set", "Innenraum-Demontagewerkzeug", "Öldichtungs-Haken-Set", "Schlauchklemmen-Zangen-Set"],
-                "evidence": ["Kunststoff-Nylon-Hebel-Set", "Auto-Clip-Set", "Innenraum-Demontagewerkzeug", "Öldichtungs-Haken-Set", "Schlauchklemmen-Zangen-Set", "Verkleidungs-Clip"]
-            }
+            "01 仪表检测工具": {"search": ["radiator pressure tester", "cylinder compression tester", "fuel pressure gauge", "oil pressure gauge", "vacuum gauge"]},
+            "02 液体更换/补充工具": {"search": ["brake fluid replacement tool", "brake bleeder", "oil extractor", "fluid syringe", "vacuum pump"]},
+            "03 汽车空调制冷工具": {"search": ["a/c manifold gauge", "refrigerant charging kit", "a/c leak detection", "valve core remover"]},
+            "04 车身拆卸/卡扣工具": {"search": ["trim removal tool", "plastic pry tools", "car clip set", "hose clamp pliers", "bearing removal tool"]},
+            "05 发动机正时工具": {"search": ["engine timing tool", "camshaft locking tool", "crankshaft tool"]}
         }
     },
-    "法国": {
-        "lang": "fr", "country": "fr", "region": "fr-fr",
-        "cities": ["Paris", "Lyon", "Marseille", "Lille", "Bordeaux", "Toulouse", "Nantes"],
-        "role_words": ["grossiste", "importateur", "distributeur", "fournisseur", "revendeur"],
-        "exclude_words": ["garage", "atelier de réparation", "carrosserie", "peinture", "pneumatique"],
+    "德国 (德语区)": {
+        "region": "de-de",
+        "cities": ["Berlin", "Hamburg", "München", "Frankfurt", "Stuttgart"],
+        "role_words": ["Großhandel", "Importeur", "Distributor", "Händler", "Werkzeug-Shop", "Werkstattausrüstung"],
+        "exclude_words": ["Autoreparatur", "Reparaturservice", "Reifenservice", "Lackiererei", "Abschleppdienst"],
         "product_lines": {
-            "空调/冷却系统": {
-                "search": ["détecteur de fuite de radiateur", "outil de climatisation auto", "manifold frigorifique", "kit de charge de réfrigérant", "détecteur de fuite de clim"],
-                "evidence": ["détecteur de fuite de radiateur", "outil de climatisation", "manifold frigorifique", "kit de charge", "détecteur de fuite de clim"]
-            },
-            "仪表检测工具": {
-                "search": ["testeur de compression", "manomètre de pression d'essence", "testeur d'injecteur diesel", "outil de diagnostic moteur", "dépressiomètre", "testeur de contre-pression"],
-                "evidence": ["testeur de compression", "manomètre de pression d'essence", "testeur d'injecteur diesel", "diagnostic moteur", "dépressiomètre"]
-            },
-            "刹车/底盘/结构": {
-                "search": ["kit de repose-culasse", "outil de réparation de suspension", "extracteur de rotule", "outil de centrage d'embrayage", "extracteur de roulement", "outil de montage d'amortisseur"],
-                "evidence": ["repose-culasse", "outil de suspension", "extracteur de rotule", "centrage d'embrayage", "extracteur de roulement"]
-            },
-            "液体更换/系统维护": {
-                "search": ["purgeur de frein", "kit de remplissage de liquide de refroidissement", "échangeur de liquide de frein", "outil de remplissage d'huile de réfrigérant", "seringue d'aspiration et de remplissage"],
-                "evidence": ["purgeur de frein", "remplissage de liquide de refroidissement", "échangeur de liquide de frein", "seringue d'aspiration"]
-            },
-            "内饰撬棒/卡扣耗材": {
-                "search": ["kit de leviers en nylon", "kit de clips auto", "outil de démontage intérieur", "kit de crochets à joint", "kit de pinces pour colliers"],
-                "evidence": ["leviers en nylon", "clips auto", "démontage intérieur", "crochets à joint", "pinces pour colliers"]
-            }
+            "01 仪表检测工具": {"search": ["Kühlsystem-Dichtheitsprüfer", "Kompressionstester", "Kraftstoffdruckprüfer", "Öldruckprüfer"]},
+            "02 液体更换/补充工具": {"search": ["Bremsenentlüftungsgerät", "Ölabsaugpumpe", "Bremsflüssigkeitswechsler", "Vakuumpumpe"]},
+            "03 汽车空调制冷工具": {"search": ["Klima-Monteurhilfe", "Kältemittel-Füllschlauch", "Klima-Lecksuchgerät", "Ventilausdreher"]},
+            "04 车身拆卸/卡扣工具": {"search": ["Zierleistenkeile", "Türverkleidungs-Werkzeug", "Schlauchklemmenzange", "Auto-Clip-Set"]},
+            "05 发动机正时工具": {"search": ["Motor-Einstellwerkzeug", "Nockenwellen-Arretierwerkzeug", "Zahnriemen-Werkzeug"]}
         }
     },
-    "西班牙": {
-        "lang": "es", "country": "es", "region": "es-es",
-        "cities": ["Madrid", "Barcelona", "Valencia", "Sevilla", "Bilbao", "Zaragoza"],
-        "role_words": ["mayorista", "importador", "distribuidor", "proveedor", "comercio al por mayor"],
-        "exclude_words": ["taller", "reparación", "carrocería", "pintura", "neumáticos"],
+    "法国 (法语区)": {
+        "region": "fr-fr",
+        "cities": ["Paris", "Lyon", "Marseille", "Lille", "Bordeaux"],
+        "role_words": ["grossiste", "importateur", "distributeur", "fournisseur", "boutique d'outillage", "équipement d'atelier"],
+        "exclude_words": ["centre de réparation", "carrosserie", "pneumatique", "service de réparation", "dépannage"],
         "product_lines": {
-            "空调/冷却系统": {
-                "search": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga de refrigerante", "detector de fugas de aire acondicionado"],
-                "evidence": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga", "detector de fugas"]
-            },
-            "仪表检测工具": {
-                "search": ["comprobador de compresión", "manómetro de presión de combustible", "probador de inyectores diésel", "herramienta de diagnóstico del motor", "vacuómetro", "probador de contrapresión"],
-                "evidence": ["comprobador de compresión", "manómetro de presión", "probador de inyectores", "diagnóstico del motor"]
-            },
-            "刹车/底盘/结构": {
-                "search": ["juego de retroceso de freno", "herramienta de reparación de suspensión", "extractor de rótulas", "herramienta de centrado de embrague", "extractor de rodamientos", "montador de amortiguadores"],
-                "evidence": ["retroceso de freno", "herramienta de suspensión", "extractor de rótulas", "centrado de embrague", "extractor de rodamientos"]
-            },
-            "液体更换/系统维护": {
-                "search": ["purgador de frenos", "kit de llenado de refrigerante", "cambiador de líquido de frenos", "herramienta de llenado de aceite de refrigerante", "jeringa de aspiración y llenado"],
-                "evidence": ["purgador de frenos", "llenado de refrigerante", "cambiador de líquido de frenos", "jeringa de aspiración"]
-            },
-            "内饰撬棒/卡扣耗材": {
-                "search": ["kit de palancas de nailon", "kit de clips de coche", "herramienta de desmontaje interior", "kit de ganchos para retenes", "kit de alicates para abrazaderas"],
-                "evidence": ["palancas de nailon", "clips de coche", "desmontaje interior", "ganchos para retenes", "alicates para abrazaderas"]
-            }
+            "01 仪表检测工具": {"search": ["testeur de pression de radiateur", "compressiomètre", "testeur de pression de carburant"]},
+            "02 液体更换/补充工具": {"search": ["purgeur de frein", "extracteur d'huile", "pompe à vide", "remplacement de liquide de frein"]},
+            "03 汽车空调制冷工具": {"search": ["manifold de climatisation", "kit de charge de réfrigérant", "détecteur de fuite de clim"]},
+            "04 车身拆卸/卡扣工具": {"search": ["outils de démontage garniture", "pinces pour colliers", "kit de clips auto", "extracteur de roulement"]},
+            "05 发动机正时工具": {"search": ["outil de calage moteur", "outil de blocage d'arbre à cames", "kit de distribution"]}
         }
     },
-    "葡萄牙": {
-        "lang": "pt", "country": "pt", "region": "pt-pt",
-        "cities": ["Lisboa", "Porto", "Braga", "Coimbra", "Faro"],
-        "role_words": ["grossista", "importador", "distribuidor", "fornecedor", "revendedor"],
-        "exclude_words": ["oficina", "reparação", "carroçaria", "pintura", "pneus"],
+    "西班牙/委内瑞拉 (西语区)": {
+        "region": "es-es",
+        "cities": ["Madrid", "Barcelona", "Caracas", "Valencia", "Bogotá"],
+        "role_words": ["mayorista", "importador", "distribuidor", "proveedor", "tienda de herramientas", "equipamiento de taller"],
+        "exclude_words": ["taller mecánico", "centro de reparación", "chapa y pintura", "neumáticos", "servicio mecánico", "grúa"],
         "product_lines": {
-            "空调/冷却系统": {
-                "search": ["detector de fugas de radiador", "ferramenta de ar condicionado", "manifold de refrigerante", "kit de carga de refrigerante", "detector de fugas de AC"],
-                "evidence": ["detector de fugas", "ferramenta de ar condicionado", "manifold de refrigerante", "kit de carga"]
-            },
-            "仪表检测工具": {
-                "search": ["testador de compressão", "manómetro de pressão de combustível", "testador de injetores diesel", "ferramenta de diagnóstico do motor", "vacuómetro", "testador de contrapressão"],
-                "evidence": ["testador de compressão", "manómetro de pressão", "testador de injetores", "diagnóstico do motor"]
-            },
-            "刹车/底盘/结构": {
-                "search": ["kit de recuo do travão", "ferramenta de reparação de suspensão", "extrator de rótulas", "ferramenta de centragem da embraiagem", "extrator de rolamentos", "montador de amortecedores"],
-                "evidence": ["recuo do travão", "ferramenta de suspensão", "extrator de rótulas", "centragem da embraiagem"]
-            },
-            "液体更换/系统维护": {
-                "search": ["purga de travões", "kit de enchimento de líquido de refrigeração", "trocador de fluido de travões", "ferramenta de enchimento de óleo de refrigerante", "seringa de aspiração e enchimento"],
-                "evidence": ["purga de travões", "enchimento de líquido", "trocador de fluido", "seringa de aspiração"]
-            },
-            "内饰撬棒/卡扣耗材": {
-                "search": ["kit de alavancas de nylon", "kit de clips automóvel", "ferramenta de desmontagem interior", "kit de ganchos para retentores", "kit de alicates para braçadeiras"],
-                "evidence": ["alavancas de nylon", "clips automóvel", "desmontagem interior", "ganchos para retentores"]
-            }
+            "01 仪表检测工具": {"search": ["probador de presión de radiador", "comprobador de compresión", "medidor de presión de combustible"]},
+            "02 液体更换/补充工具": {"search": ["purgador de frenos", "extractor de aceite", "bomba de vacío", "cambio de líquido de frenos"]},
+            "03 汽车空调制冷工具": {"search": ["manómetro de aire acondicionado", "kit de carga de refrigerante", "detector de fugas a/c"]},
+            "04 车身拆卸/卡扣工具": {"search": ["herramientas para desmontar molduras", "alicates para abrazaderas", "kit de grapas coche"]},
+            "05 发动机正时工具": {"search": ["kit de calado de motor", "herramienta de sincronización", "bloqueo de árbol de levas"]}
         }
     },
-    "意大利": {
-        "lang": "it", "country": "it", "region": "it-it",
-        "cities": ["Milano", "Roma", "Napoli", "Torino", "Bologna", "Firenze"],
-        "role_words": ["grossista", "importatore", "distributore", "fornitore", "rivenditore"],
-        "exclude_words": ["officina", "riparazione", "carrozzeria", "verniciatura", "pneumatici"],
+    "葡萄牙/巴西 (葡语区)": {
+        "region": "pt-pt",
+        "cities": ["Lisboa", "Porto", "São Paulo", "Rio de Janeiro"],
+        "role_words": ["grossista", "importador", "distribuidor", "fornecedor", "loja de ferramentas", "equipamento de oficina"],
+        "exclude_words": ["oficina mecânica", "centro de reparação", "bate-chapa", "pneus", "serviço de reboque"],
         "product_lines": {
-            "空调/冷却系统": {
-                "search": ["tester perdite radiatore", "attrezzo per aria condizionata", "manifold refrigerante", "kit di ricarica refrigerante", "rilevatore perdite AC"],
-                "evidence": ["tester perdite", "attrezzo per aria condizionata", "manifold refrigerante", "kit di ricarica"]
-            },
-            "仪表检测工具": {
-                "search": ["tester di compressione", "manometro pressione carburante", "tester iniettori diesel", "strumento di diagnosi motore", "vacuometro", "tester di contropressione"],
-                "evidence": ["tester di compressione", "manometro pressione", "tester iniettori", "diagnosi motore"]
-            },
-            "刹车/底盘/结构": {
-                "search": ["kit rientro pistoncini freno", "attrezzo per sospensioni", "estrattore giunti sferici", "centraggio frizione", "estrattore cuscinetti", "montatore ammortizzatori"],
-                "evidence": ["rientro pistoncini", "attrezzo per sospensioni", "estrattore giunti", "centraggio frizione"]
-            },
-            "液体更换/系统维护": {
-                "search": ["spurgo freni", "kit di riempimento liquido raffreddamento", "cambiatore liquido freni", "attrezzo riempimento olio refrigerante", "siringa aspirazione e riempimento"],
-                "evidence": ["spurgo freni", "riempimento liquido", "cambiatore liquido", "siringa aspirazione"]
-            },
-            "内饰撬棒/卡扣耗材": {
-                "search": ["set leve in nylon", "set clip auto", "attrezzo smontaggio interni", "set ganci per guarnizioni", "set pinze per fascette"],
-                "evidence": ["leve in nylon", "clip auto", "smontaggio interni", "ganci per guarnizioni"]
-            }
+            "01 仪表检测工具": {"search": ["teste de pressão do radiador", "testador de compressão", "medidor de pressão de combustível"]},
+            "02 液体更换/补充工具": {"search": ["sangrador de freios", "extrator de óleo", "bomba de vácuo", "troca de fluido de freio"]},
+            "03 汽车空调制冷工具": {"search": ["manifold ar condicionado", "kit de recarga de refrigerante", "detector de vazamento a/c"]},
+            "04 车身拆卸/卡扣工具": {"search": ["ferramentas de remoção de painel", "alicate de abraçadeira", "kit de grampos automotivos"]},
+            "05 发动机正时工具": {"search": ["ferramenta de ponto do motor", "ferramenta de sincronismo", "trava do comando de válvulas"]}
         }
     },
-    "英国": {
-        "lang": "en", "country": "uk", "region": "uk-en",
-        "cities": ["London", "Birmingham", "Manchester", "Glasgow", "Liverpool", "Bristol"],
-        "role_words": ["wholesaler", "importer", "distributor", "supplier"],
-        "exclude_words": ["garage", "repair", "body shop", "paint", "tyre", "auto service", "dealership"],
+    "意大利 (意语区)": {
+        "region": "it-it",
+        "cities": ["Milano", "Roma", "Napoli", "Torino", "Bologna"],
+        "role_words": ["grossista", "importatore", "distributore", "fornitore", "negozio di utensili", "attrezzatura per officina"],
+        "exclude_words": ["officina meccanica", "centro riparazioni", "carrozzeria", "gommista", "soccorso stradale"],
         "product_lines": {
-            "空调/冷却系统": {
-                "search": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit", "AC leak detector"],
-                "evidence": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit"]
-            },
-            "仪表检测工具": {
-                "search": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic tool", "vacuum gauge", "exhaust back pressure tester"],
-                "evidence": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic"]
-            },
-            "刹车/底盘/结构": {
-                "search": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment tool", "bearing puller", "shock absorber mounting tool"],
-                "evidence": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment"]
-            },
-            "液体更换/系统维护": {
-                "search": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "refrigerant oil fill tool", "suction and fill syringe"],
-                "evidence": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "suction syringe"]
-            },
-            "内饰撬棒/卡扣耗材": {
-                "search": ["nylon pry bar set", "car clip set", "interior trim removal tool", "oil seal hook set", "hose clamp pliers set"],
-                "evidence": ["nylon pry bar set", "car clip set", "interior trim removal", "oil seal hook", "hose clamp pliers"]
-            }
-        }
-    },
-    "美国": {
-        "lang": "en", "country": "us", "region": "us-en",
-        "cities": ["New York", "Los Angeles", "Chicago", "Houston", "Miami", "Dallas"],
-        "role_words": ["wholesaler", "importer", "distributor", "supplier"],
-        "exclude_words": ["garage", "repair shop", "body shop", "paint shop", "tire shop", "auto service", "quick lube", "car wash", "dealership"],
-        "product_lines": {
-            "空调/冷却系统": {
-                "search": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit", "AC leak detector"],
-                "evidence": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit"]
-            },
-            "仪表检测工具": {
-                "search": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic tool", "vacuum gauge", "exhaust back pressure tester"],
-                "evidence": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic"]
-            },
-            "刹车/底盘/结构": {
-                "search": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment tool", "bearing puller", "shock absorber mounting tool"],
-                "evidence": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment"]
-            },
-            "液体更换/系统维护": {
-                "search": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "refrigerant oil fill tool", "suction and fill syringe"],
-                "evidence": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "suction syringe"]
-            },
-            "内饰撬棒/卡扣耗材": {
-                "search": ["nylon pry bar set", "car clip set", "interior trim removal tool", "oil seal hook set", "hose clamp pliers set"],
-                "evidence": ["nylon pry bar set", "car clip set", "interior trim removal", "oil seal hook", "hose clamp pliers"]
-            }
-        }
-    },
-    "委内瑞拉": {
-        "lang": "es", "country": "ve", "region": "ve-es",
-        "cities": ["Caracas", "Maracaibo", "Valencia", "Barquisimeto", "Maracay"],
-        "role_words": ["mayorista", "importador", "distribuidor", "proveedor", "comercio al por mayor"],
-        "exclude_words": ["taller", "reparación", "carrocería", "pintura", "neumáticos", "lubricentro", "autolavado"],
-        "product_lines": {
-            "空调/冷却系统": {
-                "search": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga de refrigerante", "detector de fugas de aire acondicionado"],
-                "evidence": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga", "detector de fugas"]
-            },
-            "仪表检测工具": {
-                "search": ["comprobador de compresión", "manómetro de presión de combustible", "probador de inyectores diésel", "herramienta de diagnóstico del motor", "vacuómetro", "probador de contrapresión"],
-                "evidence": ["comprobador de compresión", "manómetro de presión", "probador de inyectores", "diagnóstico del motor"]
-            },
-            "刹车/底盘/结构": {
-                "search": ["juego de retroceso de freno", "herramienta de reparación de suspensión", "extractor de rótulas", "herramienta de centrado de embrague", "extractor de rodamientos", "montador de amortiguadores"],
-                "evidence": ["retroceso de freno", "herramienta de suspensión", "extractor de rótulas", "centrado de embrague", "extractor de rodamientos"]
-            },
-            "液体更换/系统维护": {
-                "search": ["purgador de frenos", "kit de llenado de refrigerante", "cambiador de líquido de frenos", "herramienta de llenado de aceite de refrigerante", "jeringa de aspiración y llenado"],
-                "evidence": ["purgador de frenos", "llenado de refrigerante", "cambiador de líquido de frenos", "jeringa de aspiración"]
-            },
-            "内饰撬棒/卡扣耗材": {
-                "search": ["kit de palancas de nailon", "kit de clips de coche", "herramienta de desmontaje interior", "kit de ganchos para retenes", "kit de alicates para abrazaderas"],
-                "evidence": ["palancas de nailon", "clips de coche", "desmontaje interior", "ganchos para retenes", "alicates para abrazaderas"]
-            }
-        }
-    },
-    "斯里兰卡": {
-        "lang": "en", "country": "lk", "region": "lk-en",
-        "cities": ["Colombo", "Kandy", "Galle", "Jaffna", "Negombo"],
-        "role_words": ["wholesaler", "importer", "distributor", "supplier", "dealer"],
-        "exclude_words": ["garage", "repair", "service station", "paint shop", "tyre shop", "auto service", "workshop"],
-        "product_lines": {
-            "空调/冷却系统": {
-                "search": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit", "AC leak detector"],
-                "evidence": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit"]
-            },
-            "仪表检测工具": {
-                "search": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic tool", "vacuum gauge", "exhaust back pressure tester"],
-                "evidence": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic"]
-            },
-            "刹车/底盘/结构": {
-                "search": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment tool", "bearing puller", "shock absorber mounting tool"],
-                "evidence": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment"]
-            },
-            "液体更换/系统维护": {
-                "search": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "refrigerant oil fill tool", "suction and fill syringe"],
-                "evidence": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "suction syringe"]
-            },
-            "内饰撬棒/卡扣耗材": {
-                "search": ["nylon pry bar set", "car clip set", "interior trim removal tool", "oil seal hook set", "hose clamp pliers set"],
-                "evidence": ["nylon pry bar set", "car clip set", "interior trim removal", "oil seal hook", "hose clamp pliers"]
-            }
+            "01 仪表检测工具": {"search": ["tester pressione radiatore", "tester di compressione", "manometro pressione carburante"]},
+            "02 液体更换/补充工具": {"search": ["spurgo freni", "estrattore olio", "pompa del vuoto", "sostituzione liquido freni"]},
+            "03 汽车空调制冷工具": {"search": ["gruppo manometrico a/c", "kit ricarica refrigerante", "rilevatore perdite a/c"]},
+            "04 车身拆卸/卡扣工具": {"search": ["utensili rimozione pannelli", "pinza per fascette", "kit clip auto"]},
+            "05 发动机正时工具": {"search": ["attrezzo fasatura motore", "bloccaggio albero a camme", "kit distribuzione"]}
         }
     }
 }
@@ -271,94 +98,117 @@ COUNTRY_CONFIG = {
 def fetch_page(url, retries=2):
     for attempt in range(retries):
         try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-            resp = requests.get(url, timeout=15, headers=headers)
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115.0.0.0 Safari/537.36'}
+            resp = requests.get(url, timeout=12, headers=headers)
             resp.raise_for_status()
             return resp.text
         except:
-            time.sleep(2)
+            time.sleep(1)
     return None
 
 def score_lead(html, url, config, keywords):
     soup = BeautifulSoup(html, 'html.parser')
     text = soup.get_text().lower()
     
-    # 排除词检查
-    for word in config['exclude_words']:
-        if word.lower() in text:
-            return 0, None
+    # 1. 排除纯B2C修车店（但如果是Facebook工具卖家的主页则网开一面）
+    domain = urlparse(url).netloc
+    if "facebook.com" not in domain:
+        for word in config['exclude_words']:
+            if word.lower() in text:
+                return 0, None
 
-    # 产品关键词必须命中
-    matched_kw = [kw for kw in keywords if kw.lower() in text]
-    if not matched_kw:
-        return 0, None
+    # 2. 产品关键词匹配 (核心逻辑：存在2-3件即可)
+    matched_kw = list(set([kw for kw in keywords if kw.lower() in text]))
+    if len(matched_kw) == 0:
+        return 0, None  # 一件都没命中，放弃
     
-    score = 10  # 基础分：包含产品词
+    score = 10  # 基础分
+    
+    # 【亮点】命中多款产品加分算法：体现该网站是一个综合经销商
+    if len(matched_kw) >= 3:
+        score += 30  # 极大概率是对口五金/工具分销商
+    elif len(matched_kw) == 2:
+        score += 15
 
-    # 角色词必须出现
+    # 3. 角色词或社媒属性命中 (如 Digitzone 是个经销商)
     role_hit = any(role.lower() in text for role in config['role_words'])
-    if not role_hit:
-        return 0, None  # 强制要求
-    score += 20
+    if role_hit:
+        score += 20
+    elif "facebook.com" in domain:
+        score += 15 # FB商家页面酌情给过
+    else:
+        return 0, None # 既没经销商词又不是社媒，可能是普通文章，放弃
 
-    # 联系方式质量
-    emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)
+    # 4. 提取联系方式与社媒 (对海外客户极度重要)
+    emails = list(dict.fromkeys(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
     commercial_email = False
     free_domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com']
     for e in emails:
-        domain = e.split('@')[1].lower()
-        if domain not in free_domains and 'noreply' not in e and 'example' not in e:
+        edomain = e.split('@')[-1].lower()
+        if edomain not in free_domains and 'noreply' not in e and 'example' not in e and 'wix' not in e:
             commercial_email = True
             break
     if commercial_email:
-        score += 10
+        score += 10 # 有企业邮箱加分
 
-    domain = urlparse(url).netloc
-    company = soup.title.string.strip() if soup.title else domain
+    wa_links = list(set(re.findall(r'(https?://(?:wa\.me/|api\.whatsapp\.com/send\?phone=)[0-9]+)', html)))
+    fb_links = list(set(re.findall(r'(https?://(?:www\.)?facebook\.com/[a-zA-Z0-9._-]+)', html)))
+    fb_links = [l for l in fb_links if not any(x in l for x in ['sharer', 'share', 'plugins', 'events'])]
     phones = re.findall(r'[\+\(]?[0-9][0-9 .\-\(\)]{7,}[0-9]', html)
-    contact = "邮箱: " + (", ".join(emails[:2]) if emails else "无") + "; 电话: " + (phones[0] if phones else "官网表单")
+    
+    contact_parts = []
+    if emails: contact_parts.append("✉️ " + ", ".join(emails[:2]))
+    if wa_links: contact_parts.append("💬 WA: " + wa_links[0])
+    elif phones: contact_parts.append("📞 " + phones[0])
+    
+    if fb_links or "facebook.com" in domain:
+        score += 5
+        fb_str = fb_links[0] if fb_links else url
+        contact_parts.append("🌐 FB: " + fb_str)
+
+    if not contact_parts:
+        contact_parts.append("官网表单")
+
+    company = soup.title.string.strip() if soup.title else domain
 
     return score, {
-        '公司名称': company,
-        '官网': url,
-        '匹配产品': ', '.join(matched_kw[:3]),
-        '联系方式': contact,
+        '公司名称': company[:60] + "..." if len(company)>60 else company,
+        '官网/主页': url,
+        '匹配产品': ', '.join(matched_kw[:5]),  # 最多展示5个匹配到的产品
+        '产品数': len(matched_kw),
+        '联系方式': " | ".join(contact_parts),
         '评分': score
     }
 
 def duckduckgo_search(query, region, max_results=5):
     try:
-        with DDGS() as ddgs:
-            return [r['href'] for r in ddgs.text(query, region=region, max_results=max_results)]
+        ddgs = DDGS()
+        return [r['href'] for r in ddgs.text(query, region=region, max_results=max_results)]
     except Exception as e:
-        st.warning(f"搜索出错: {e}")
         return []
 
 # ==================== 会话状态初始化 ====================
-if 'excluded_domains' not in st.session_state:
-    st.session_state.excluded_domains = set()
-if 'all_leads' not in st.session_state:
-    st.session_state.all_leads = []      # 保存所有搜索到的线索
-if 'current_page' not in st.session_state:
-    st.session_state.current_page = 0    # 当前页码（0-based）
-if 'last_search_count' not in st.session_state:
-    st.session_state.last_search_count = 0   # 搜索次数统计
+if 'excluded_domains' not in st.session_state: st.session_state.excluded_domains = set()
+if 'all_leads' not in st.session_state: st.session_state.all_leads = []
+if 'current_page' not in st.session_state: st.session_state.current_page = 0
+if 'last_search_count' not in st.session_state: st.session_state.last_search_count = 0
 
 # ==================== 侧边栏 ====================
 with st.sidebar:
     st.header("🌍 搜索配置")
-    selected_country = st.selectbox("选择目标国家", list(COUNTRY_CONFIG.keys()))
+    selected_country = st.selectbox("选择目标语言区 (国家组)", list(COUNTRY_CONFIG.keys()))
     config = COUNTRY_CONFIG[selected_country]
-    cities = st.multiselect("选择城市", config['cities'], default=config['cities'][:3])
+    cities = st.multiselect("可添加城市(可选)", config['cities'], default=config['cities'][:2])
 
-    st.subheader("📦 选择产品线")
+    st.subheader("📦 选择我们的产品线")
+    st.caption("勾选越多，越容易找到全品类经销商")
     selected_lines = []
     for line_name in config['product_lines'].keys():
         if st.checkbox(line_name, value=True):
             selected_lines.append(line_name)
 
-    st.subheader("🔧 手动关键词")
-    manual_keywords = st.text_area("每行一个关键词（可选）", height=80)
+    st.subheader("🔧 补充产品关键词")
+    manual_keywords = st.text_area("输入其它特定产品词（如 Digitzone 等）每行一个", height=80)
 
     final_keywords = []
     for line in selected_lines:
@@ -370,12 +220,10 @@ with st.sidebar:
         final_keywords = list(set(final_keywords))
 
     if final_keywords:
-        st.text(f"搜索词数: {len(final_keywords)}")
-        with st.expander("查看搜索词"):
-            st.write(final_keywords)
+        st.caption(f"当前监控产品词数: {len(final_keywords)}")
 
     st.markdown("---")
-    st.caption(f"已排除域名: {len(st.session_state.excluded_domains)} 个")
+    st.caption(f"已排查域名: {len(st.session_state.excluded_domains)} 个")
     if st.button("清空所有记录", key="clear_all"):
         st.session_state.excluded_domains.clear()
         st.session_state.all_leads.clear()
@@ -392,53 +240,50 @@ def search_leads(keywords, config, excluded_domains, max_new=5):
     queries = []
     for kw in keywords:
         role = random.choice(config['role_words'])
-        queries.append(f'"{kw}" {role}')
+        # 25% 的概率专项搜索 Facebook 的汽修工具经销商
+        if random.random() < 0.25:
+            queries.append(f'"{kw}" {role} site:facebook.com')
+        else:
+            queries.append(f'"{kw}" {role}')
     random.shuffle(queries)
 
     for q in queries:
-        if len(scored_leads) >= max_new * 2:
-            break
+        if len(scored_leads) >= max_new * 2: break
         urls = duckduckgo_search(q, region=region, max_results=5)
         for url in urls:
             domain = urlparse(url).netloc
-            if domain in seen:
+            if domain in seen and "facebook.com" not in domain:
                 continue
             html = fetch_page(url)
-            if not html:
-                continue
+            if not html: continue
+            
             score, info = score_lead(html, url, config, keywords)
             if score > 0:
-                scored_leads.append((score, info))
-                seen.add(domain)
+                if not any(url == lead[1]['官网/主页'] for lead in scored_leads):
+                    scored_leads.append((score, info))
+                    seen.add(domain)
             else:
                 seen.add(domain)
         time.sleep(1)
 
-    # 按评分排序，取前 max_new 个
     scored_leads.sort(key=lambda x: x[0], reverse=True)
-    final_leads = [info for _, info in scored_leads[:max_new]]
-    return final_leads
+    return [info for _, info in scored_leads[:max_new]]
 
-if st.button("🔍 搜索5家精准客户", type="primary"):
+if st.button("🔍 智能检索 5 家匹配经销商", type="primary"):
     if not final_keywords:
         st.error("请至少选择一条产品线或输入关键词")
-    elif not cities:
-        st.error("请至少选择一个城市")
     else:
-        with st.spinner("正在搜索并评估客户质量..."):
+        with st.spinner("正在全球全网扫街中 (寻找同时售卖1-3件我们产品的潜客)..."):
             leads = search_leads(final_keywords, config, st.session_state.excluded_domains, max_new=5)
         if leads:
-            # 将新线索追加到总列表
             st.session_state.all_leads.extend(leads)
-            # 排除域名
             for l in leads:
-                st.session_state.excluded_domains.add(urlparse(l['官网']).netloc)
+                st.session_state.excluded_domains.add(urlparse(l['官网/主页']).netloc)
             st.session_state.last_search_count += 1
-            # 自动跳转到最后一页
             st.session_state.current_page = (len(st.session_state.all_leads) - 1) // 5
-            st.success(f"第 {st.session_state.last_search_count} 次搜索，新增 {len(leads)} 家客户（总记录 {len(st.session_state.all_leads)} 条）")
+            st.success(f"第 {st.session_state.last_search_count} 次搜索，新增 {len(leads)} 家精准客户")
         else:
-            st.warning("未找到同时包含产品词和批发/进口商词汇的网站。")
+            st.warning("暂未发现有效客户，请稍后再试。")
 
 # ==================== 分页显示结果 ====================
 if st.session_state.all_leads:
@@ -446,7 +291,6 @@ if st.session_state.all_leads:
     total_pages = (total_leads - 1) // 5 + 1
     current_page = st.session_state.current_page
 
-    # 导航栏
     col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
     with col1:
         if st.button("⬅️ 上一页", disabled=(current_page == 0)):
@@ -460,21 +304,22 @@ if st.session_state.all_leads:
         st.write(f"页码 {current_page+1}/{total_pages} · 共 {total_leads} 条记录")
     with col4:
         st.download_button(
-            "📥 导出全部记录 CSV",
-            pd.DataFrame(st.session_state.all_leads)[['公司名称','官网','匹配产品','联系方式','评分']].to_csv(index=False).encode('utf-8-sig'),
-            "all_leads.csv"
+            "📥 导出 CSV",
+            pd.DataFrame(st.session_state.all_leads)[['公司名称','官网/主页','匹配产品','产品数','联系方式','评分']].to_csv(index=False).encode('utf-8-sig'),
+            "JYTOOL_B2B_Leads.csv"
         )
 
-    # 当前页的5条记录
     start_idx = current_page * 5
     end_idx = min(start_idx + 5, total_leads)
     for i in range(start_idx, end_idx):
         lead = st.session_state.all_leads[i]
-        score_color = "🟢" if lead['评分'] >= 30 else "🟡"
+        # 如果产品匹配数 >= 3，给与🔥标识，说明是高度匹配的综合经销商
+        score_color = "🔥" if lead['产品数'] >= 3 else ("🟢" if lead['产品数'] == 2 else "🟡")
+        
         st.subheader(f"{i+1}. {score_color} {lead['公司名称']} (评分: {lead['评分']})")
-        st.markdown(f"🌐 官网: [{lead['官网']}]({lead['官网']})")
-        st.markdown(f"🔧 匹配产品: {lead['匹配产品']}")
+        st.markdown(f"🌐 官网/主页: [{lead['官网/主页']}]({lead['官网/主页']})")
+        st.markdown(f"🎯 **匹配到我们的产品 ({lead['产品数']}款)**: `{lead['匹配产品']}`")
         st.markdown(f"📞 联系方式: {lead['联系方式']}")
         st.markdown("---")
 else:
-    st.info("点击上方按钮开始搜索，每次搜索新增5家精准客户")
+    st.info("点击上方按钮开始搜索。系统会自动帮您寻找涵盖您 PDF 目录中 1~3 款产品的设备经销商。")
