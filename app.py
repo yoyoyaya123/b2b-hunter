@@ -6,7 +6,7 @@ import random
 import pandas as pd
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from googlesearch import search
+from duckduckgo_search import DDGS  # 替换了 googlesearch
 import PyPDF2
 import pytesseract
 from pdf2image import convert_from_bytes
@@ -14,7 +14,7 @@ from pdf2image import convert_from_bytes
 st.set_page_config(page_title="B2B全球精准获客-汽保工具", layout="wide")
 st.title("🔧 汽车维修专用工具 · 全球B2B精准客户搜索")
 
-# ==================== 全球多语言产品线配置 ====================
+# ==================== 全球多语言产品线配置（保持不变）====================
 COUNTRY_CONFIG = {
     "德国": {
         "lang": "de", "country": "de",
@@ -232,29 +232,36 @@ def ocr_from_images(images):
     except:
         return "OCR失败"
 
-def fetch_page(url):
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        resp = requests.get(url, timeout=10, headers=headers)
-        resp.raise_for_status()
-        return resp.text
-    except:
-        return None
+def fetch_page(url, retries=2):
+    for attempt in range(retries):
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            resp = requests.get(url, timeout=15, headers=headers)
+            resp.raise_for_status()
+            return resp.text
+        except:
+            time.sleep(2)
+    return None
 
 def contains_any(text, kw_list):
     text_lower = text.lower()
     return any(kw.lower() in text_lower for kw in kw_list)
 
+# 修改后的提取函数：放宽角色词要求，只强制排除词和证据词
 def extract_lead(html, url, exclude_words, role_words, evidence_keywords):
     soup = BeautifulSoup(html, 'html.parser')
     text = soup.get_text()
 
+    # 必须不包含排除词
     if contains_any(text, exclude_words):
-        return None
-    if not contains_any(text, role_words):
-        return None
+        return None, "被排除词过滤"
+
+    # 必须包含至少一个证据关键词
     if not contains_any(text, evidence_keywords):
-        return None
+        return None, "未匹配到产品词"
+
+    # 角色词只作为参考，不强求
+    is_role = contains_any(text, role_words)
 
     domain = urlparse(url).netloc
     company = soup.title.string.strip() if soup.title else domain
@@ -294,7 +301,18 @@ def extract_lead(html, url, exclude_words, role_words, evidence_keywords):
         '规模': '中小型',
         '电商渠道': ecommerce_str,
         '联系方式': contact,
-    }
+        '疑似批发/进口商': '是' if is_role else '可能（未提及）'
+    }, ""
+
+# DuckDuckGo 搜索封装
+def duckduckgo_search(query, max_results=5):
+    try:
+        with DDGS() as ddgs:
+            results = [r['href'] for r in ddgs.text(query, max_results=max_results)]
+            return results
+    except Exception as e:
+        st.warning(f"DuckDuckGo 搜索出错: {e}")
+        return []
 
 # ==================== 主界面 ====================
 with st.sidebar:
@@ -302,17 +320,14 @@ with st.sidebar:
     selected_country = st.selectbox("选择目标国家", list(COUNTRY_CONFIG.keys()))
     config = COUNTRY_CONFIG[selected_country]
 
-    # 产品线勾选
     st.subheader("📦 勾选要搜索的产品线")
     selected_lines = []
     for line_name, line_data in config['product_lines'].items():
         if st.checkbox(line_name, value=True):
             selected_lines.append(line_name)
 
-    # 城市
     cities = st.multiselect("选择城市", config['cities'], default=config['cities'][:3])
 
-    # PDF 上传与预览
     with st.expander("📄 上传产品目录PDF（辅助确认关键词）"):
         pdf_file = st.file_uploader("选择PDF文件", type=["pdf"])
         manual_keywords = st.text_area(
@@ -338,7 +353,7 @@ if st.button("🚀 开始搜索", type="primary"):
     elif not cities:
         st.error("请至少选择一个城市")
     else:
-        # 确定最终搜索关键词和证据关键词
+        # 关键词准备
         if manual_keywords.strip():
             search_keywords = [k.strip() for k in manual_keywords.splitlines() if k.strip()]
             evidence_keywords = []
@@ -352,58 +367,64 @@ if st.button("🚀 开始搜索", type="primary"):
                 search_keywords.extend(line['search'])
                 evidence_keywords.extend(line['evidence'])
 
-        # 生成搜索查询
+        # 生成查询组合
         queries = []
         for kw in search_keywords:
             for role in random.sample(config['role_words'], min(2, len(config['role_words']))):
                 for city in cities:
                     queries.append(f"{kw} {role} {city}")
 
-        st.info(f"共 {len(queries)} 组搜索任务，请稍候...")
+        st.info(f"共 {len(queries)} 组搜索任务，使用 DuckDuckGo，请稍候...")
         all_leads = []
         seen = set()
+        debug_logs = []  # 用于实时展示处理详情
         progress_bar = st.progress(0)
         status_text = st.empty()
 
         for i, q in enumerate(queries):
             status_text.text(f"正在搜索: {q}")
             progress_bar.progress((i+1)/len(queries))
-            try:
-                results = search(q, num=5, stop=5, user_agent='Mozilla/5.0',
-                                 lang=config['lang'], country=config['country'])
-            except Exception:
-                time.sleep(2)
-                continue
-
-            for url in results:
+            urls = duckduckgo_search(q, max_results=5)
+            debug_logs.append(f"查询: {q} → 返回 {len(urls)} 条结果")
+            for url in urls:
                 domain = urlparse(url).netloc
                 if domain in seen:
                     continue
                 seen.add(domain)
                 html = fetch_page(url)
                 if not html:
+                    debug_logs.append(f"  ❌ 无法访问: {url}")
                     continue
-                lead = extract_lead(html, url, config['exclude_words'], config['role_words'], evidence_keywords)
+                lead, reason = extract_lead(html, url, config['exclude_words'], config['role_words'], evidence_keywords)
                 if lead:
                     all_leads.append(lead)
-                time.sleep(random.uniform(2, 5))  # 控制频率
-            time.sleep(3)
+                    debug_logs.append(f"  ✅ 匹配: {lead['公司名称']} ({url})")
+                else:
+                    debug_logs.append(f"  ⏩ 跳过 ({reason}): {url}")
+                time.sleep(random.uniform(1, 2))  # 礼貌延迟
+            time.sleep(1)  # 组间延迟
 
         progress_bar.empty()
         status_text.empty()
 
+        # 显示调试面板
+        with st.expander("🔍 调试信息（点击展开）"):
+            for log in debug_logs:
+                st.write(log)
+
         if not all_leads:
             st.warning("未找到匹配客户。请尝试减少城市或更换关键词。")
         else:
+            # 去重
             unique_leads = []
             names = set()
             for l in all_leads:
                 if l['公司名称'] not in names:
                     names.add(l['公司名称'])
                     unique_leads.append(l)
-            final = unique_leads[:5]
+            final = unique_leads[:10]  # 展示前10条
 
-            st.success(f"找到 {len(unique_leads)} 家匹配公司，显示前 5 家。")
+            st.success(f"找到 {len(unique_leads)} 家匹配公司，显示前 {len(final)} 家。")
             for i, lead in enumerate(final, 1):
                 with st.container():
                     st.subheader(f"{i}. {lead['公司名称']}")
@@ -416,10 +437,11 @@ if st.button("🚀 开始搜索", type="primary"):
                             social_links.append(link)
                     st.markdown(f"📱 社媒: {' · '.join(social_links)}")
                     st.markdown(f"🔧 匹配产品: {lead['匹配产品']}")
-                    st.markdown(f"🏢 规模: {lead['规模']} | 🛒 电商: {lead['电商渠道']}")
+                    st.markdown(f"🏢 规模: {lead['规模']} | 🛒 电商: {lead['电商渠道']} | 🔎 批发/进口商迹象: {lead['疑似批发/进口商']}")
                     st.markdown(f"📞 联系方式: {lead['联系方式']}")
                     st.markdown("---")
 
+            # 导出 CSV
             df = pd.DataFrame(final)
             df['社媒'] = df['社媒'].apply(lambda x: '; '.join([f"{n}: {l}" for n, l in x]) if isinstance(x, list) else x)
             csv = df.to_csv(index=False).encode('utf-8-sig')
