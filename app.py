@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from ddgs import DDGS
 
 st.set_page_config(page_title="B2B全球精准获客-汽保工具", layout="wide")
-st.title("🔧 汽车维修专用工具 · 全球B2B精准客户搜索")
+st.title("🔧 汽车维修专用工具 · 全球B2B精准客户搜索（精准版）")
 
 # ==================== 全球9国产品线配置 ====================
 COUNTRY_CONFIG = {
@@ -279,29 +279,51 @@ def fetch_page(url, retries=2):
             time.sleep(2)
     return None
 
-def extract_info(html, url, exclude_words, keywords):
+def score_lead(html, url, config, keywords):
     soup = BeautifulSoup(html, 'html.parser')
     text = soup.get_text().lower()
-    for word in exclude_words:
+    
+    # 排除词检查
+    for word in config['exclude_words']:
         if word.lower() in text:
-            return None
-    if not any(kw.lower() in text for kw in keywords):
-        return None
+            return 0, None
+
+    # 产品关键词必须命中
+    matched_kw = [kw for kw in keywords if kw.lower() in text]
+    if not matched_kw:
+        return 0, None
+    
+    score = 10  # 基础分：包含产品词
+
+    # 角色词必须出现
+    role_hit = any(role.lower() in text for role in config['role_words'])
+    if not role_hit:
+        return 0, None  # 强制要求
+    score += 20
+
+    # 联系方式质量
+    emails = re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)
+    commercial_email = False
+    free_domains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com']
+    for e in emails:
+        domain = e.split('@')[1].lower()
+        if domain not in free_domains and 'noreply' not in e and 'example' not in e:
+            commercial_email = True
+            break
+    if commercial_email:
+        score += 10
 
     domain = urlparse(url).netloc
     company = soup.title.string.strip() if soup.title else domain
-
-    emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
-    emails = [e for e in emails if 'noreply' not in e and 'example' not in e]
-
     phones = re.findall(r'[\+\(]?[0-9][0-9 .\-\(\)]{7,}[0-9]', html)
-    contact = "邮箱: " + (", ".join(emails) if emails else "无") + "; 电话: " + (phones[0] if phones else "官网表单")
+    contact = "邮箱: " + (", ".join(emails[:2]) if emails else "无") + "; 电话: " + (phones[0] if phones else "官网表单")
 
-    return {
+    return score, {
         '公司名称': company,
         '官网': url,
-        '匹配产品': '',
+        '匹配产品': ', '.join(matched_kw[:3]),
         '联系方式': contact,
+        '评分': score
     }
 
 def duckduckgo_search(query, region, max_results=5):
@@ -312,11 +334,15 @@ def duckduckgo_search(query, region, max_results=5):
         st.warning(f"搜索出错: {e}")
         return []
 
-# ==================== 会话状态 ====================
+# ==================== 会话状态初始化 ====================
 if 'excluded_domains' not in st.session_state:
     st.session_state.excluded_domains = set()
-if 'search_count' not in st.session_state:
-    st.session_state.search_count = 0
+if 'all_leads' not in st.session_state:
+    st.session_state.all_leads = []      # 保存所有搜索到的线索
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 0    # 当前页码（0-based）
+if 'last_search_count' not in st.session_state:
+    st.session_state.last_search_count = 0   # 搜索次数统计
 
 # ==================== 侧边栏 ====================
 with st.sidebar:
@@ -349,24 +375,28 @@ with st.sidebar:
             st.write(final_keywords)
 
     st.markdown("---")
-    st.caption("已排除域名数: " + str(len(st.session_state.excluded_domains)))
-    if st.button("清空排除列表", key="clear_excluded"):
+    st.caption(f"已排除域名: {len(st.session_state.excluded_domains)} 个")
+    if st.button("清空所有记录", key="clear_all"):
         st.session_state.excluded_domains.clear()
-        st.session_state.search_count = 0
+        st.session_state.all_leads.clear()
+        st.session_state.current_page = 0
+        st.session_state.last_search_count = 0
         st.rerun()
 
 # ==================== 搜索逻辑 ====================
 def search_leads(keywords, config, excluded_domains, max_new=5):
-    new_leads = []
+    scored_leads = []
     seen = excluded_domains.copy()
     region = config.get("region", "us-en")
+    
     queries = []
     for kw in keywords:
         role = random.choice(config['role_words'])
-        queries.append(f"{kw} {role}")
+        queries.append(f'"{kw}" {role}')
     random.shuffle(queries)
+
     for q in queries:
-        if len(new_leads) >= max_new:
+        if len(scored_leads) >= max_new * 2:
             break
         urls = duckduckgo_search(q, region=region, max_results=5)
         for url in urls:
@@ -376,47 +406,75 @@ def search_leads(keywords, config, excluded_domains, max_new=5):
             html = fetch_page(url)
             if not html:
                 continue
-            info = extract_info(html, url, config['exclude_words'], keywords)
-            if not info:
+            score, info = score_lead(html, url, config, keywords)
+            if score > 0:
+                scored_leads.append((score, info))
                 seen.add(domain)
-                continue
-            matched = [kw for kw in keywords if kw.lower() in html.lower()]
-            info['匹配产品'] = ', '.join(matched[:3]) if matched else "通用匹配"
-            new_leads.append(info)
-            seen.add(domain)
-            if len(new_leads) >= max_new:
-                break
+            else:
+                seen.add(domain)
         time.sleep(1)
-    return new_leads
 
-if st.button("🔍 搜索5家新公司", type="primary"):
+    # 按评分排序，取前 max_new 个
+    scored_leads.sort(key=lambda x: x[0], reverse=True)
+    final_leads = [info for _, info in scored_leads[:max_new]]
+    return final_leads
+
+if st.button("🔍 搜索5家精准客户", type="primary"):
     if not final_keywords:
         st.error("请至少选择一条产品线或输入关键词")
     elif not cities:
         st.error("请至少选择一个城市")
     else:
-        with st.spinner("搜索中..."):
+        with st.spinner("正在搜索并评估客户质量..."):
             leads = search_leads(final_keywords, config, st.session_state.excluded_domains, max_new=5)
         if leads:
-            st.session_state.search_count += 1
-            st.session_state['last_leads'] = leads
+            # 将新线索追加到总列表
+            st.session_state.all_leads.extend(leads)
+            # 排除域名
             for l in leads:
                 st.session_state.excluded_domains.add(urlparse(l['官网']).netloc)
-            st.success(f"第 {st.session_state.search_count} 次搜索，找到 {len(leads)} 家新公司")
+            st.session_state.last_search_count += 1
+            # 自动跳转到最后一页
+            st.session_state.current_page = (len(st.session_state.all_leads) - 1) // 5
+            st.success(f"第 {st.session_state.last_search_count} 次搜索，新增 {len(leads)} 家客户（总记录 {len(st.session_state.all_leads)} 条）")
         else:
-            st.warning("未找到新公司，请更换国家或关键词。")
+            st.warning("未找到同时包含产品词和批发/进口商词汇的网站。")
 
-# ==================== 展示结果 ====================
-if 'last_leads' in st.session_state:
-    leads = st.session_state.last_leads
-    for i, lead in enumerate(leads, 1):
-        st.subheader(f"{i}. {lead['公司名称']}")
+# ==================== 分页显示结果 ====================
+if st.session_state.all_leads:
+    total_leads = len(st.session_state.all_leads)
+    total_pages = (total_leads - 1) // 5 + 1
+    current_page = st.session_state.current_page
+
+    # 导航栏
+    col1, col2, col3, col4 = st.columns([1, 1, 2, 1])
+    with col1:
+        if st.button("⬅️ 上一页", disabled=(current_page == 0)):
+            st.session_state.current_page -= 1
+            st.rerun()
+    with col2:
+        if st.button("下一页 ➡️", disabled=(current_page >= total_pages - 1)):
+            st.session_state.current_page += 1
+            st.rerun()
+    with col3:
+        st.write(f"页码 {current_page+1}/{total_pages} · 共 {total_leads} 条记录")
+    with col4:
+        st.download_button(
+            "📥 导出全部记录 CSV",
+            pd.DataFrame(st.session_state.all_leads)[['公司名称','官网','匹配产品','联系方式','评分']].to_csv(index=False).encode('utf-8-sig'),
+            "all_leads.csv"
+        )
+
+    # 当前页的5条记录
+    start_idx = current_page * 5
+    end_idx = min(start_idx + 5, total_leads)
+    for i in range(start_idx, end_idx):
+        lead = st.session_state.all_leads[i]
+        score_color = "🟢" if lead['评分'] >= 30 else "🟡"
+        st.subheader(f"{i+1}. {score_color} {lead['公司名称']} (评分: {lead['评分']})")
         st.markdown(f"🌐 官网: [{lead['官网']}]({lead['官网']})")
         st.markdown(f"🔧 匹配产品: {lead['匹配产品']}")
         st.markdown(f"📞 联系方式: {lead['联系方式']}")
         st.markdown("---")
-    df = pd.DataFrame(leads)[['公司名称','官网','匹配产品','联系方式']]
-    csv = df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("📥 下载 CSV", csv, f"leads_{st.session_state.search_count}.csv")
 else:
-    st.info("点击按钮开始搜索，每次5家不重复公司")
+    st.info("点击上方按钮开始搜索，每次搜索新增5家精准客户")
