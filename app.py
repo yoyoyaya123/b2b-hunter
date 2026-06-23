@@ -6,25 +6,10 @@ import random
 import pandas as pd
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from ddgs import DDGS  # 使用新包
-from PIL import Image
-import torch
-import clip
-import io
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
+from ddgs import DDGS
 
 st.set_page_config(page_title="B2B全球精准获客-汽保工具", layout="wide")
-st.title("🔧 汽车维修专用工具 · 全球B2B精准客户搜索（图片+关键词）")
-
-# ==================== 加载 CLIP 模型 ====================
-@st.cache_resource
-def load_clip_model():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model, preprocess = clip.load("ViT-B/32", device=device)
-    return model, preprocess, device
-
-model, preprocess, device = load_clip_model()
+st.title("🔧 汽车维修专用工具 · 全球B2B精准客户搜索")
 
 # ==================== 全球9国产品线配置 ====================
 COUNTRY_CONFIG = {
@@ -283,22 +268,6 @@ COUNTRY_CONFIG = {
 }
 
 # ==================== 辅助函数 ====================
-def get_image_features(image: Image.Image):
-    image_input = preprocess(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        features = model.encode_image(image_input)
-        features = features / features.norm(dim=-1, keepdim=True)
-    return features.cpu().numpy().flatten()
-
-def classify_image(image: Image.Image, product_line_names):
-    text_tokens = clip.tokenize(product_line_names).to(device)
-    image_input = preprocess(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        logits_per_image, _ = model(image_input, text_tokens)
-        probs = logits_per_image.softmax(dim=-1).cpu().numpy()[0]
-    best_idx = probs.argmax()
-    return product_line_names[best_idx], probs[best_idx]
-
 def fetch_page(url, retries=2):
     for attempt in range(retries):
         try:
@@ -333,47 +302,7 @@ def extract_info(html, url, exclude_words, keywords):
         '官网': url,
         '匹配产品': '',
         '联系方式': contact,
-        'html': html,
     }
-
-def get_website_images(html, base_url, max_images=3):
-    soup = BeautifulSoup(html, 'html.parser')
-    img_tags = soup.find_all('img', src=True)
-    img_urls = []
-    for img in img_tags:
-        src = img['src']
-        if not src.startswith('http'):
-            src = requests.compat.urljoin(base_url, src)
-        if src not in img_urls:
-            img_urls.append(src)
-        if len(img_urls) >= max_images:
-            break
-    return img_urls
-
-def download_image(img_url, timeout=8):
-    try:
-        resp = requests.get(img_url, timeout=timeout, headers={'User-Agent': 'Mozilla/5.0'})
-        if resp.status_code == 200:
-            return Image.open(io.BytesIO(resp.content)).convert("RGB")
-    except:
-        pass
-    return None
-
-def compute_similarity(user_features, website_images):
-    if not website_images:
-        return 0.0, None
-    sims, valid_imgs = [], []
-    for img_url in website_images:
-        pil_img = download_image(img_url)
-        if pil_img:
-            feat = get_image_features(pil_img)
-            sim = cosine_similarity([user_features], [feat])[0][0]
-            sims.append(sim)
-            valid_imgs.append(pil_img)
-    if not sims:
-        return 0.0, None
-    max_idx = np.argmax(sims)
-    return sims[max_idx], valid_imgs[max_idx]
 
 def duckduckgo_search(query, region, max_results=5):
     try:
@@ -386,10 +315,6 @@ def duckduckgo_search(query, region, max_results=5):
 # ==================== 会话状态 ====================
 if 'excluded_domains' not in st.session_state:
     st.session_state.excluded_domains = set()
-if 'uploaded_images' not in st.session_state:
-    st.session_state.uploaded_images = []
-if 'user_image_features' not in st.session_state:
-    st.session_state.user_image_features = None
 if 'search_count' not in st.session_state:
     st.session_state.search_count = 0
 
@@ -398,100 +323,67 @@ with st.sidebar:
     st.header("🌍 搜索配置")
     selected_country = st.selectbox("选择目标国家", list(COUNTRY_CONFIG.keys()))
     config = COUNTRY_CONFIG[selected_country]
-
     cities = st.multiselect("选择城市", config['cities'], default=config['cities'][:3])
 
-    st.subheader("📷 上传产品图片")
-    uploaded_files = st.file_uploader("选择1-5张产品照片", type=["png", "jpg", "jpeg"],
-                                      accept_multiple_files=True, key="image_uploader")
+    st.subheader("📦 选择产品线")
+    selected_lines = []
+    for line_name in config['product_lines'].keys():
+        if st.checkbox(line_name, value=True):
+            selected_lines.append(line_name)
 
-    if uploaded_files:
-        st.session_state.uploaded_images = [Image.open(f).convert("RGB") for f in uploaded_files]
-        features_list = [get_image_features(img) for img in st.session_state.uploaded_images]
-        st.session_state.user_image_features = np.mean(features_list, axis=0)
-        cols = st.columns(len(uploaded_files))
-        for idx, img in enumerate(st.session_state.uploaded_images):
-            cols[idx].image(img, width=80, caption=f"图{idx+1}")
-    else:
-        st.session_state.uploaded_images = []
-        st.session_state.user_image_features = None
+    st.subheader("🔧 手动关键词")
+    manual_keywords = st.text_area("每行一个关键词（可选）", height=80)
 
-    st.subheader("🔧 关键词设置")
-    manual_keywords = st.text_area("手动补充关键词（每行一个）", height=80)
-
-    auto_keywords = []
-    if st.session_state.uploaded_images:
-        product_line_names = list(config['product_lines'].keys())
-        predicted_lines = set()
-        for img in st.session_state.uploaded_images:
-            line, conf = classify_image(img, product_line_names)
-            if conf > 0.25:
-                predicted_lines.add(line)
-        if predicted_lines:
-            st.success(f"图片识别产品线: {', '.join(predicted_lines)}")
-            for line in predicted_lines:
-                auto_keywords.extend(config['product_lines'][line]['search'])
-            auto_keywords = list(set(auto_keywords))
-        else:
-            st.warning("无法自动识别产品线，将仅使用手动关键词")
-
+    final_keywords = []
+    for line in selected_lines:
+        final_keywords.extend(config['product_lines'][line]['search'])
     if manual_keywords.strip():
         manual_list = [k.strip() for k in manual_keywords.splitlines() if k.strip()]
-        final_keywords = list(set(auto_keywords + manual_list))
+        final_keywords = list(set(final_keywords + manual_list))
     else:
-        final_keywords = auto_keywords
+        final_keywords = list(set(final_keywords))
 
     if final_keywords:
-        st.text(f"最终搜索词数量: {len(final_keywords)}")
+        st.text(f"搜索词数: {len(final_keywords)}")
         with st.expander("查看搜索词"):
             st.write(final_keywords)
 
     st.markdown("---")
-    st.caption("已排除公司域名数: " + str(len(st.session_state.excluded_domains)))
-    if st.button("清空排除列表，重新开始", key="clear_excluded"):
+    st.caption("已排除域名数: " + str(len(st.session_state.excluded_domains)))
+    if st.button("清空排除列表", key="clear_excluded"):
         st.session_state.excluded_domains.clear()
         st.session_state.search_count = 0
         st.rerun()
 
-# ==================== 搜索主逻辑 ====================
-def search_and_collect_leads(keywords, config, excluded_domains, user_features=None, max_new=5):
+# ==================== 搜索逻辑 ====================
+def search_leads(keywords, config, excluded_domains, max_new=5):
     new_leads = []
-    seen_domains = excluded_domains.copy()
+    seen = excluded_domains.copy()
     region = config.get("region", "us-en")
-
     queries = []
     for kw in keywords:
         role = random.choice(config['role_words'])
         queries.append(f"{kw} {role}")
     random.shuffle(queries)
-
     for q in queries:
         if len(new_leads) >= max_new:
             break
         urls = duckduckgo_search(q, region=region, max_results=5)
         for url in urls:
             domain = urlparse(url).netloc
-            if domain in seen_domains:
+            if domain in seen:
                 continue
             html = fetch_page(url)
             if not html:
                 continue
             info = extract_info(html, url, config['exclude_words'], keywords)
             if not info:
-                seen_domains.add(domain)
+                seen.add(domain)
                 continue
-            if user_features is not None:
-                img_urls = get_website_images(html, url, max_images=3)
-                sim, best_img = compute_similarity(user_features, img_urls)
-                info['相似度'] = f"{sim*100:.1f}%"
-                info['网站图片'] = best_img
-            else:
-                info['相似度'] = "未启用"
-                info['网站图片'] = None
-            matched_kw = [kw for kw in keywords if kw.lower() in html.lower()]
-            info['匹配产品'] = ', '.join(matched_kw[:3]) if matched_kw else "通用匹配"
+            matched = [kw for kw in keywords if kw.lower() in html.lower()]
+            info['匹配产品'] = ', '.join(matched[:3]) if matched else "通用匹配"
             new_leads.append(info)
-            seen_domains.add(domain)
+            seen.add(domain)
             if len(new_leads) >= max_new:
                 break
         time.sleep(1)
@@ -499,28 +391,22 @@ def search_and_collect_leads(keywords, config, excluded_domains, user_features=N
 
 if st.button("🔍 搜索5家新公司", type="primary"):
     if not final_keywords:
-        st.error("请至少上传图片或输入关键词")
+        st.error("请至少选择一条产品线或输入关键词")
     elif not cities:
         st.error("请至少选择一个城市")
     else:
-        with st.spinner("正在搜索客户并分析图片相似度..."):
-            leads = search_and_collect_leads(
-                final_keywords, config,
-                st.session_state.excluded_domains,
-                st.session_state.user_image_features,
-                max_new=5
-            )
+        with st.spinner("搜索中..."):
+            leads = search_leads(final_keywords, config, st.session_state.excluded_domains, max_new=5)
         if leads:
             st.session_state.search_count += 1
             st.session_state['last_leads'] = leads
-            for lead in leads:
-                domain = urlparse(lead['官网']).netloc
-                st.session_state.excluded_domains.add(domain)
+            for l in leads:
+                st.session_state.excluded_domains.add(urlparse(l['官网']).netloc)
             st.success(f"第 {st.session_state.search_count} 次搜索，找到 {len(leads)} 家新公司")
         else:
-            st.warning("未找到新公司，请尝试更换关键词或城市。")
+            st.warning("未找到新公司，请更换国家或关键词。")
 
-# ==================== 显示结果（已修复 key） ====================
+# ==================== 展示结果 ====================
 if 'last_leads' in st.session_state:
     leads = st.session_state.last_leads
     for i, lead in enumerate(leads, 1):
@@ -528,23 +414,9 @@ if 'last_leads' in st.session_state:
         st.markdown(f"🌐 官网: [{lead['官网']}]({lead['官网']})")
         st.markdown(f"🔧 匹配产品: {lead['匹配产品']}")
         st.markdown(f"📞 联系方式: {lead['联系方式']}")
-
-        if lead.get('网站图片'):
-            col1, col2, col3 = st.columns([1, 1, 1])
-            with col1:
-                if st.session_state.uploaded_images:
-                    st.image(st.session_state.uploaded_images[0], caption="你的产品", width=200, key=f"user_img_{i}")
-            with col2:
-                st.image(lead['网站图片'], caption="客户网站图片", width=200, key=f"web_img_{i}")
-            with col3:
-                st.metric("图片相似度", lead.get('相似度', 'N/A'), key=f"metric_{i}")
-        else:
-            st.caption("未找到可对比的产品图片")
         st.markdown("---")
-
-    df = pd.DataFrame(leads)
-    df = df[['公司名称', '官网', '匹配产品', '联系方式', '相似度']]
+    df = pd.DataFrame(leads)[['公司名称','官网','匹配产品','联系方式']]
     csv = df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("📥 下载本次结果 CSV", csv, f"leads_{st.session_state.search_count}.csv", "text/csv", key=f"download_{st.session_state.search_count}")
+    st.download_button("📥 下载 CSV", csv, f"leads_{st.session_state.search_count}.csv")
 else:
-    st.info("点击上方按钮开始搜索，每次返回5家不重复的公司")
+    st.info("点击按钮开始搜索，每次5家不重复公司")
