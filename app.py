@@ -6,7 +6,7 @@ import random
 import pandas as pd
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
+from ddgs import DDGS  # 使用新包名
 from PIL import Image
 import torch
 import clip
@@ -224,13 +224,12 @@ COUNTRY_CONFIG = {
             }
         }
     },
-    # ========== 新增国家 ==========
     "委内瑞拉": {
         "lang": "es", "country": "ve", "region": "ve-es",
         "cities": ["Caracas", "Maracaibo", "Valencia", "Barquisimeto", "Maracay"],
         "role_words": ["mayorista", "importador", "distribuidor", "proveedor", "comercio al por mayor"],
         "exclude_words": ["taller", "reparación", "carrocería", "pintura", "neumáticos", "lubricentro", "autolavado"],
-        "product_lines": {  # 使用西班牙语产品词（复用西班牙配置）
+        "product_lines": {
             "空调/冷却系统": {
                 "search": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga de refrigerante", "detector de fugas de aire acondicionado"],
                 "evidence": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga", "detector de fugas"]
@@ -258,7 +257,7 @@ COUNTRY_CONFIG = {
         "cities": ["Colombo", "Kandy", "Galle", "Jaffna", "Negombo"],
         "role_words": ["wholesaler", "importer", "distributor", "supplier", "dealer"],
         "exclude_words": ["garage", "repair", "service station", "paint shop", "tyre shop", "auto service", "workshop"],
-        "product_lines": {  # 使用英语产品词
+        "product_lines": {
             "空调/冷却系统": {
                 "search": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit", "AC leak detector"],
                 "evidence": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit"]
@@ -314,11 +313,9 @@ def fetch_page(url, retries=2):
 def extract_info(html, url, exclude_words, keywords):
     soup = BeautifulSoup(html, 'html.parser')
     text = soup.get_text().lower()
-    # 排除词过滤
     for word in exclude_words:
         if word.lower() in text:
             return None
-    # 必须包含至少一个搜索关键词
     if not any(kw.lower() in text for kw in keywords):
         return None
 
@@ -386,7 +383,7 @@ def duckduckgo_search(query, region, max_results=5):
         st.warning(f"搜索出错: {e}")
         return []
 
-# ==================== 会话状态初始化 ====================
+# ==================== 会话状态 ====================
 if 'excluded_domains' not in st.session_state:
     st.session_state.excluded_domains = set()
 if 'uploaded_images' not in st.session_state:
@@ -462,7 +459,6 @@ def search_and_collect_leads(keywords, config, excluded_domains, user_features=N
     seen_domains = excluded_domains.copy()
     region = config.get("region", "us-en")
 
-    # 查询组合：产品词 + 角色词（不加城市，由region限制）
     queries = []
     for kw in keywords:
         role = random.choice(config['role_words'])
@@ -484,7 +480,6 @@ def search_and_collect_leads(keywords, config, excluded_domains, user_features=N
             if not info:
                 seen_domains.add(domain)
                 continue
-            # 图片相似度
             if user_features is not None:
                 img_urls = get_website_images(html, url, max_images=3)
                 sim, best_img = compute_similarity(user_features, img_urls)
@@ -493,7 +488,6 @@ def search_and_collect_leads(keywords, config, excluded_domains, user_features=N
             else:
                 info['相似度'] = "未启用"
                 info['网站图片'] = None
-            # 匹配的产品词
             matched_kw = [kw for kw in keywords if kw.lower() in html.lower()]
             info['匹配产品'] = ', '.join(matched_kw[:3]) if matched_kw else "通用匹配"
             new_leads.append(info)
@@ -526,7 +520,6 @@ if st.button("🔍 搜索5家新公司", type="primary"):
         else:
             st.warning("未找到新公司，请尝试更换关键词或城市。")
 
-# 展示结果
 if 'last_leads' in st.session_state:
     leads = st.session_state.last_leads
     for i, lead in enumerate(leads, 1):
