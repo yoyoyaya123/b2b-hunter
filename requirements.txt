@@ -3,10 +3,10 @@ streamlit
 requests
 beautifulsoup4
 lxml
-duckduckgo-search>=6.0.0
+ddgs
 pandas
 pillow
-torch==2.0.1+cpu
-torchvision==0.15.2+cpu
+torch
+torchvision
 clip
 scikit-learn
