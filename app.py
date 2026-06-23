@@ -6,207 +6,276 @@ import random
 import pandas as pd
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS  # 替换了 googlesearch
-import PyPDF2
-import pytesseract
-from pdf2image import convert_from_bytes
+from duckduckgo_search import DDGS
+from PIL import Image
+import torch
+import clip
+import io
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
 
 st.set_page_config(page_title="B2B全球精准获客-汽保工具", layout="wide")
-st.title("🔧 汽车维修专用工具 · 全球B2B精准客户搜索")
+st.title("🔧 汽车维修专用工具 · 全球B2B精准客户搜索（图片+关键词）")
 
-# ==================== 全球多语言产品线配置（保持不变）====================
+# ==================== 加载 CLIP 模型 ====================
+@st.cache_resource
+def load_clip_model():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model, preprocess = clip.load("ViT-B/32", device=device)
+    return model, preprocess, device
+
+model, preprocess, device = load_clip_model()
+
+# ==================== 全球9国产品线配置 ====================
 COUNTRY_CONFIG = {
     "德国": {
-        "lang": "de", "country": "de",
+        "lang": "de", "country": "de", "region": "de-de",
         "cities": ["Berlin", "Hamburg", "München", "Frankfurt", "Stuttgart", "Köln", "Düsseldorf"],
         "role_words": ["Großhandel", "Großhändler", "Importeur", "Import", "Distributor", "Händler", "Lieferant", "Fachhandel"],
-        "exclude_words": ["Werkstatt", "Reparatur", "Service-Center", "Autohaus", "Reifenservice", "Karosseriebau", "Lackiererei", "Tuning", "Industrie", "Baumaschinen", "Gartengeräte", "Landwirtschaft"],
+        "exclude_words": ["Werkstatt", "Reparatur", "Service-Center", "Autohaus", "Reifenservice", "Karosseriebau", "Lackiererei", "Tuning"],
         "product_lines": {
-            "1. 空调/冷却系统": {
+            "空调/冷却系统": {
                 "search": ["Kühlsystem-Dichtheitsprüfer", "Klimaservice-Werkzeug", "Klimaanlagen-Reparaturwerkzeug", "Kältemittel-Füllschlauch", "Klima-Lecksuchgerät"],
                 "evidence": ["Kühlsystem-Dichtheitsprüfer", "Klimaservice-Werkzeug", "Klimaanlagen-Reparaturwerkzeug", "Kältemittel", "Klima-Lecksuchgerät", "Klimaservice-Station"]
             },
-            "2. 仪表检测工具": {
+            "仪表检测工具": {
                 "search": ["Zylinderdruckprüfer", "Kraftstoffdruckmessgerät", "Dieseleinspritzung-Tester", "Motor-Diagnosegerät", "Unterdruckmanometer", "Abgasgegendruckprüfer"],
                 "evidence": ["Zylinderdruckprüfer", "Kraftstoffdruckmessgerät", "Dieseleinspritzung-Tester", "Motor-Diagnosegerät", "Kompressionstester", "Einspritzdüsen-Tester"]
             },
-            "3. 刹车/底盘/结构": {
+            "刹车/底盘/结构": {
                 "search": ["Bremskolbenrückstellsatz", "Fahrwerk-Reparaturwerkzeug", "Kugelgelenkabzieher", "Kupplungszentrierwerkzeug", "Radlager-Abzieher-Set", "Stoßdämpfer-Montagewerkzeug"],
                 "evidence": ["Bremskolbenrückstellsatz", "Fahrwerk-Reparaturwerkzeug", "Kugelgelenkabzieher", "Kupplungszentrierwerkzeug", "Radlager-Abzieher", "Stoßdämpfer-Montagewerkzeug"]
             },
-            "4. 液体更换/系统维护": {
+            "液体更换/系统维护": {
                 "search": ["Bremsenentlüftungsgerät", "Kühlmittel-Befüllset", "Bremsflüssigkeitswechsler", "Kältemittelöl-Einfüllwerkzeug", "Absaug- und Einfüllspritze"],
                 "evidence": ["Bremsenentlüftungsgerät", "Kühlmittel-Befüllset", "Bremsflüssigkeitswechsler", "Kältemittelöl-Einfüllwerkzeug", "Absaugspritze", "Entlüftungsgerät"]
             },
-            "5. 内饰撬棒/卡扣耗材": {
+            "内饰撬棒/卡扣耗材": {
                 "search": ["Kunststoff-Nylon-Hebel-Set", "Auto-Clip-Set", "Innenraum-Demontagewerkzeug", "Öldichtungs-Haken-Set", "Schlauchklemmen-Zangen-Set"],
                 "evidence": ["Kunststoff-Nylon-Hebel-Set", "Auto-Clip-Set", "Innenraum-Demontagewerkzeug", "Öldichtungs-Haken-Set", "Schlauchklemmen-Zangen-Set", "Verkleidungs-Clip"]
             }
         }
     },
     "法国": {
-        "lang": "fr", "country": "fr",
+        "lang": "fr", "country": "fr", "region": "fr-fr",
         "cities": ["Paris", "Lyon", "Marseille", "Lille", "Bordeaux", "Toulouse", "Nantes"],
         "role_words": ["grossiste", "importateur", "distributeur", "fournisseur", "revendeur"],
-        "exclude_words": ["garage", "atelier de réparation", "carrosserie", "peinture", "pneumatique", "industriel", "bâtiment", "jardinage", "agricole"],
+        "exclude_words": ["garage", "atelier de réparation", "carrosserie", "peinture", "pneumatique"],
         "product_lines": {
-            "1. 空调/冷却系统": {
+            "空调/冷却系统": {
                 "search": ["détecteur de fuite de radiateur", "outil de climatisation auto", "manifold frigorifique", "kit de charge de réfrigérant", "détecteur de fuite de clim"],
                 "evidence": ["détecteur de fuite de radiateur", "outil de climatisation", "manifold frigorifique", "kit de charge", "détecteur de fuite de clim"]
             },
-            "2. 仪表检测工具": {
+            "仪表检测工具": {
                 "search": ["testeur de compression", "manomètre de pression d'essence", "testeur d'injecteur diesel", "outil de diagnostic moteur", "dépressiomètre", "testeur de contre-pression"],
                 "evidence": ["testeur de compression", "manomètre de pression d'essence", "testeur d'injecteur diesel", "diagnostic moteur", "dépressiomètre"]
             },
-            "3. 刹车/底盘/结构": {
+            "刹车/底盘/结构": {
                 "search": ["kit de repose-culasse", "outil de réparation de suspension", "extracteur de rotule", "outil de centrage d'embrayage", "extracteur de roulement", "outil de montage d'amortisseur"],
                 "evidence": ["repose-culasse", "outil de suspension", "extracteur de rotule", "centrage d'embrayage", "extracteur de roulement"]
             },
-            "4. 液体更换/系统维护": {
+            "液体更换/系统维护": {
                 "search": ["purgeur de frein", "kit de remplissage de liquide de refroidissement", "échangeur de liquide de frein", "outil de remplissage d'huile de réfrigérant", "seringue d'aspiration et de remplissage"],
                 "evidence": ["purgeur de frein", "remplissage de liquide de refroidissement", "échangeur de liquide de frein", "seringue d'aspiration"]
             },
-            "5. 内饰撬棒/卡扣耗材": {
+            "内饰撬棒/卡扣耗材": {
                 "search": ["kit de leviers en nylon", "kit de clips auto", "outil de démontage intérieur", "kit de crochets à joint", "kit de pinces pour colliers"],
                 "evidence": ["leviers en nylon", "clips auto", "démontage intérieur", "crochets à joint", "pinces pour colliers"]
             }
         }
     },
     "西班牙": {
-        "lang": "es", "country": "es",
+        "lang": "es", "country": "es", "region": "es-es",
         "cities": ["Madrid", "Barcelona", "Valencia", "Sevilla", "Bilbao", "Zaragoza"],
         "role_words": ["mayorista", "importador", "distribuidor", "proveedor", "comercio al por mayor"],
-        "exclude_words": ["taller", "reparación", "carrocería", "pintura", "neumáticos", "industrial", "construcción", "jardinería", "agrícola"],
+        "exclude_words": ["taller", "reparación", "carrocería", "pintura", "neumáticos"],
         "product_lines": {
-            "1. 空调/冷却系统": {
+            "空调/冷却系统": {
                 "search": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga de refrigerante", "detector de fugas de aire acondicionado"],
                 "evidence": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga", "detector de fugas"]
             },
-            "2. 仪表检测工具": {
+            "仪表检测工具": {
                 "search": ["comprobador de compresión", "manómetro de presión de combustible", "probador de inyectores diésel", "herramienta de diagnóstico del motor", "vacuómetro", "probador de contrapresión"],
                 "evidence": ["comprobador de compresión", "manómetro de presión", "probador de inyectores", "diagnóstico del motor"]
             },
-            "3. 刹车/底盘/结构": {
+            "刹车/底盘/结构": {
                 "search": ["juego de retroceso de freno", "herramienta de reparación de suspensión", "extractor de rótulas", "herramienta de centrado de embrague", "extractor de rodamientos", "montador de amortiguadores"],
                 "evidence": ["retroceso de freno", "herramienta de suspensión", "extractor de rótulas", "centrado de embrague", "extractor de rodamientos"]
             },
-            "4. 液体更换/系统维护": {
+            "液体更换/系统维护": {
                 "search": ["purgador de frenos", "kit de llenado de refrigerante", "cambiador de líquido de frenos", "herramienta de llenado de aceite de refrigerante", "jeringa de aspiración y llenado"],
                 "evidence": ["purgador de frenos", "llenado de refrigerante", "cambiador de líquido de frenos", "jeringa de aspiración"]
             },
-            "5. 内饰撬棒/卡扣耗材": {
+            "内饰撬棒/卡扣耗材": {
                 "search": ["kit de palancas de nailon", "kit de clips de coche", "herramienta de desmontaje interior", "kit de ganchos para retenes", "kit de alicates para abrazaderas"],
                 "evidence": ["palancas de nailon", "clips de coche", "desmontaje interior", "ganchos para retenes", "alicates para abrazaderas"]
             }
         }
     },
     "葡萄牙": {
-        "lang": "pt", "country": "pt",
+        "lang": "pt", "country": "pt", "region": "pt-pt",
         "cities": ["Lisboa", "Porto", "Braga", "Coimbra", "Faro"],
         "role_words": ["grossista", "importador", "distribuidor", "fornecedor", "revendedor"],
-        "exclude_words": ["oficina", "reparação", "carroçaria", "pintura", "pneus", "industrial", "construção", "jardinagem", "agrícola"],
+        "exclude_words": ["oficina", "reparação", "carroçaria", "pintura", "pneus"],
         "product_lines": {
-            "1. 空调/冷却系统": {
+            "空调/冷却系统": {
                 "search": ["detector de fugas de radiador", "ferramenta de ar condicionado", "manifold de refrigerante", "kit de carga de refrigerante", "detector de fugas de AC"],
                 "evidence": ["detector de fugas", "ferramenta de ar condicionado", "manifold de refrigerante", "kit de carga"]
             },
-            "2. 仪表检测工具": {
+            "仪表检测工具": {
                 "search": ["testador de compressão", "manómetro de pressão de combustível", "testador de injetores diesel", "ferramenta de diagnóstico do motor", "vacuómetro", "testador de contrapressão"],
                 "evidence": ["testador de compressão", "manómetro de pressão", "testador de injetores", "diagnóstico do motor"]
             },
-            "3. 刹车/底盘/结构": {
+            "刹车/底盘/结构": {
                 "search": ["kit de recuo do travão", "ferramenta de reparação de suspensão", "extrator de rótulas", "ferramenta de centragem da embraiagem", "extrator de rolamentos", "montador de amortecedores"],
                 "evidence": ["recuo do travão", "ferramenta de suspensão", "extrator de rótulas", "centragem da embraiagem"]
             },
-            "4. 液体更换/系统维护": {
+            "液体更换/系统维护": {
                 "search": ["purga de travões", "kit de enchimento de líquido de refrigeração", "trocador de fluido de travões", "ferramenta de enchimento de óleo de refrigerante", "seringa de aspiração e enchimento"],
                 "evidence": ["purga de travões", "enchimento de líquido", "trocador de fluido", "seringa de aspiração"]
             },
-            "5. 内饰撬棒/卡扣耗材": {
+            "内饰撬棒/卡扣耗材": {
                 "search": ["kit de alavancas de nylon", "kit de clips automóvel", "ferramenta de desmontagem interior", "kit de ganchos para retentores", "kit de alicates para braçadeiras"],
                 "evidence": ["alavancas de nylon", "clips automóvel", "desmontagem interior", "ganchos para retentores"]
             }
         }
     },
     "意大利": {
-        "lang": "it", "country": "it",
+        "lang": "it", "country": "it", "region": "it-it",
         "cities": ["Milano", "Roma", "Napoli", "Torino", "Bologna", "Firenze"],
         "role_words": ["grossista", "importatore", "distributore", "fornitore", "rivenditore"],
-        "exclude_words": ["officina", "riparazione", "carrozzeria", "verniciatura", "pneumatici", "industriale", "edilizia", "giardinaggio", "agricoltura"],
+        "exclude_words": ["officina", "riparazione", "carrozzeria", "verniciatura", "pneumatici"],
         "product_lines": {
-            "1. 空调/冷却系统": {
+            "空调/冷却系统": {
                 "search": ["tester perdite radiatore", "attrezzo per aria condizionata", "manifold refrigerante", "kit di ricarica refrigerante", "rilevatore perdite AC"],
                 "evidence": ["tester perdite", "attrezzo per aria condizionata", "manifold refrigerante", "kit di ricarica"]
             },
-            "2. 仪表检测工具": {
+            "仪表检测工具": {
                 "search": ["tester di compressione", "manometro pressione carburante", "tester iniettori diesel", "strumento di diagnosi motore", "vacuometro", "tester di contropressione"],
                 "evidence": ["tester di compressione", "manometro pressione", "tester iniettori", "diagnosi motore"]
             },
-            "3. 刹车/底盘/结构": {
+            "刹车/底盘/结构": {
                 "search": ["kit rientro pistoncini freno", "attrezzo per sospensioni", "estrattore giunti sferici", "centraggio frizione", "estrattore cuscinetti", "montatore ammortizzatori"],
                 "evidence": ["rientro pistoncini", "attrezzo per sospensioni", "estrattore giunti", "centraggio frizione"]
             },
-            "4. 液体更换/系统维护": {
+            "液体更换/系统维护": {
                 "search": ["spurgo freni", "kit di riempimento liquido raffreddamento", "cambiatore liquido freni", "attrezzo riempimento olio refrigerante", "siringa aspirazione e riempimento"],
                 "evidence": ["spurgo freni", "riempimento liquido", "cambiatore liquido", "siringa aspirazione"]
             },
-            "5. 内饰撬棒/卡扣耗材": {
+            "内饰撬棒/卡扣耗材": {
                 "search": ["set leve in nylon", "set clip auto", "attrezzo smontaggio interni", "set ganci per guarnizioni", "set pinze per fascette"],
                 "evidence": ["leve in nylon", "clip auto", "smontaggio interni", "ganci per guarnizioni"]
             }
         }
     },
     "英国": {
-        "lang": "en", "country": "uk",
+        "lang": "en", "country": "uk", "region": "uk-en",
         "cities": ["London", "Birmingham", "Manchester", "Glasgow", "Liverpool", "Bristol"],
         "role_words": ["wholesaler", "importer", "distributor", "supplier"],
-        "exclude_words": ["garage", "repair", "body shop", "paint", "tyre", "industrial", "construction", "garden", "agricultural"],
+        "exclude_words": ["garage", "repair", "body shop", "paint", "tyre", "auto service", "dealership"],
         "product_lines": {
-            "1. 空调/冷却系统": {
+            "空调/冷却系统": {
                 "search": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit", "AC leak detector"],
                 "evidence": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit"]
             },
-            "2. 仪表检测工具": {
+            "仪表检测工具": {
                 "search": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic tool", "vacuum gauge", "exhaust back pressure tester"],
                 "evidence": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic"]
             },
-            "3. 刹车/底盘/结构": {
+            "刹车/底盘/结构": {
                 "search": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment tool", "bearing puller", "shock absorber mounting tool"],
                 "evidence": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment"]
             },
-            "4. 液体更换/系统维护": {
+            "液体更换/系统维护": {
                 "search": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "refrigerant oil fill tool", "suction and fill syringe"],
                 "evidence": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "suction syringe"]
             },
-            "5. 内饰撬棒/卡扣耗材": {
+            "内饰撬棒/卡扣耗材": {
                 "search": ["nylon pry bar set", "car clip set", "interior trim removal tool", "oil seal hook set", "hose clamp pliers set"],
                 "evidence": ["nylon pry bar set", "car clip set", "interior trim removal", "oil seal hook", "hose clamp pliers"]
             }
         }
     },
     "美国": {
-        "lang": "en", "country": "us",
+        "lang": "en", "country": "us", "region": "us-en",
         "cities": ["New York", "Los Angeles", "Chicago", "Houston", "Miami", "Dallas"],
         "role_words": ["wholesaler", "importer", "distributor", "supplier"],
-        "exclude_words": ["garage", "repair", "body shop", "paint", "tire", "industrial", "construction", "garden", "agricultural"],
+        "exclude_words": ["garage", "repair shop", "body shop", "paint shop", "tire shop", "auto service", "quick lube", "car wash", "dealership"],
         "product_lines": {
-            "1. 空调/冷却系统": {
+            "空调/冷却系统": {
                 "search": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit", "AC leak detector"],
                 "evidence": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit"]
             },
-            "2. 仪表检测工具": {
+            "仪表检测工具": {
                 "search": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic tool", "vacuum gauge", "exhaust back pressure tester"],
                 "evidence": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic"]
             },
-            "3. 刹车/底盘/结构": {
+            "刹车/底盘/结构": {
                 "search": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment tool", "bearing puller", "shock absorber mounting tool"],
                 "evidence": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment"]
             },
-            "4. 液体更换/系统维护": {
+            "液体更换/系统维护": {
                 "search": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "refrigerant oil fill tool", "suction and fill syringe"],
                 "evidence": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "suction syringe"]
             },
-            "5. 内饰撬棒/卡扣耗材": {
+            "内饰撬棒/卡扣耗材": {
+                "search": ["nylon pry bar set", "car clip set", "interior trim removal tool", "oil seal hook set", "hose clamp pliers set"],
+                "evidence": ["nylon pry bar set", "car clip set", "interior trim removal", "oil seal hook", "hose clamp pliers"]
+            }
+        }
+    },
+    # ========== 新增国家 ==========
+    "委内瑞拉": {
+        "lang": "es", "country": "ve", "region": "ve-es",
+        "cities": ["Caracas", "Maracaibo", "Valencia", "Barquisimeto", "Maracay"],
+        "role_words": ["mayorista", "importador", "distribuidor", "proveedor", "comercio al por mayor"],
+        "exclude_words": ["taller", "reparación", "carrocería", "pintura", "neumáticos", "lubricentro", "autolavado"],
+        "product_lines": {  # 使用西班牙语产品词（复用西班牙配置）
+            "空调/冷却系统": {
+                "search": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga de refrigerante", "detector de fugas de aire acondicionado"],
+                "evidence": ["probador de fugas de radiador", "herramienta de climatización", "manómetro de refrigerante", "kit de carga", "detector de fugas"]
+            },
+            "仪表检测工具": {
+                "search": ["comprobador de compresión", "manómetro de presión de combustible", "probador de inyectores diésel", "herramienta de diagnóstico del motor", "vacuómetro", "probador de contrapresión"],
+                "evidence": ["comprobador de compresión", "manómetro de presión", "probador de inyectores", "diagnóstico del motor"]
+            },
+            "刹车/底盘/结构": {
+                "search": ["juego de retroceso de freno", "herramienta de reparación de suspensión", "extractor de rótulas", "herramienta de centrado de embrague", "extractor de rodamientos", "montador de amortiguadores"],
+                "evidence": ["retroceso de freno", "herramienta de suspensión", "extractor de rótulas", "centrado de embrague", "extractor de rodamientos"]
+            },
+            "液体更换/系统维护": {
+                "search": ["purgador de frenos", "kit de llenado de refrigerante", "cambiador de líquido de frenos", "herramienta de llenado de aceite de refrigerante", "jeringa de aspiración y llenado"],
+                "evidence": ["purgador de frenos", "llenado de refrigerante", "cambiador de líquido de frenos", "jeringa de aspiración"]
+            },
+            "内饰撬棒/卡扣耗材": {
+                "search": ["kit de palancas de nailon", "kit de clips de coche", "herramienta de desmontaje interior", "kit de ganchos para retenes", "kit de alicates para abrazaderas"],
+                "evidence": ["palancas de nailon", "clips de coche", "desmontaje interior", "ganchos para retenes", "alicates para abrazaderas"]
+            }
+        }
+    },
+    "斯里兰卡": {
+        "lang": "en", "country": "lk", "region": "lk-en",
+        "cities": ["Colombo", "Kandy", "Galle", "Jaffna", "Negombo"],
+        "role_words": ["wholesaler", "importer", "distributor", "supplier", "dealer"],
+        "exclude_words": ["garage", "repair", "service station", "paint shop", "tyre shop", "auto service", "workshop"],
+        "product_lines": {  # 使用英语产品词
+            "空调/冷却系统": {
+                "search": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit", "AC leak detector"],
+                "evidence": ["radiator leak tester", "air conditioning service tool", "refrigerant manifold", "refrigerant charge kit"]
+            },
+            "仪表检测工具": {
+                "search": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic tool", "vacuum gauge", "exhaust back pressure tester"],
+                "evidence": ["compression tester", "fuel pressure gauge", "diesel injector tester", "engine diagnostic"]
+            },
+            "刹车/底盘/结构": {
+                "search": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment tool", "bearing puller", "shock absorber mounting tool"],
+                "evidence": ["brake piston wind-back kit", "suspension repair tool", "ball joint puller", "clutch alignment"]
+            },
+            "液体更换/系统维护": {
+                "search": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "refrigerant oil fill tool", "suction and fill syringe"],
+                "evidence": ["brake bleeder", "coolant fill set", "brake fluid exchanger", "suction syringe"]
+            },
+            "内饰撬棒/卡扣耗材": {
                 "search": ["nylon pry bar set", "car clip set", "interior trim removal tool", "oil seal hook set", "hose clamp pliers set"],
                 "evidence": ["nylon pry bar set", "car clip set", "interior trim removal", "oil seal hook", "hose clamp pliers"]
             }
@@ -215,22 +284,21 @@ COUNTRY_CONFIG = {
 }
 
 # ==================== 辅助函数 ====================
-def render_pdf_previews(pdf_file):
-    try:
-        pdf_file.seek(0)
-        images = convert_from_bytes(pdf_file.read(), dpi=150)
-        return images
-    except:
-        return None
+def get_image_features(image: Image.Image):
+    image_input = preprocess(image).unsqueeze(0).to(device)
+    with torch.no_grad():
+        features = model.encode_image(image_input)
+        features = features / features.norm(dim=-1, keepdim=True)
+    return features.cpu().numpy().flatten()
 
-def ocr_from_images(images):
-    try:
-        text = ""
-        for img in images:
-            text += pytesseract.image_to_string(img, lang='eng+chi_sim+deu+fra+spa+por+ita') + "\n"
-        return text.strip()
-    except:
-        return "OCR失败"
+def classify_image(image: Image.Image, product_line_names):
+    text_tokens = clip.tokenize(product_line_names).to(device)
+    image_input = preprocess(image).unsqueeze(0).to(device)
+    with torch.no_grad():
+        logits_per_image, _ = model(image_input, text_tokens)
+        probs = logits_per_image.softmax(dim=-1).cpu().numpy()[0]
+    best_idx = probs.argmax()
+    return product_line_names[best_idx], probs[best_idx]
 
 def fetch_page(url, retries=2):
     for attempt in range(retries):
@@ -243,25 +311,16 @@ def fetch_page(url, retries=2):
             time.sleep(2)
     return None
 
-def contains_any(text, kw_list):
-    text_lower = text.lower()
-    return any(kw.lower() in text_lower for kw in kw_list)
-
-# 修改后的提取函数：放宽角色词要求，只强制排除词和证据词
-def extract_lead(html, url, exclude_words, role_words, evidence_keywords):
+def extract_info(html, url, exclude_words, keywords):
     soup = BeautifulSoup(html, 'html.parser')
-    text = soup.get_text()
-
-    # 必须不包含排除词
-    if contains_any(text, exclude_words):
-        return None, "被排除词过滤"
-
-    # 必须包含至少一个证据关键词
-    if not contains_any(text, evidence_keywords):
-        return None, "未匹配到产品词"
-
-    # 角色词只作为参考，不强求
-    is_role = contains_any(text, role_words)
+    text = soup.get_text().lower()
+    # 排除词过滤
+    for word in exclude_words:
+        if word.lower() in text:
+            return None
+    # 必须包含至少一个搜索关键词
+    if not any(kw.lower() in text for kw in keywords):
+        return None
 
     domain = urlparse(url).netloc
     company = soup.title.string.strip() if soup.title else domain
@@ -269,180 +328,230 @@ def extract_lead(html, url, exclude_words, role_words, evidence_keywords):
     emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
     emails = [e for e in emails if 'noreply' not in e and 'example' not in e]
 
-    socials = []
-    linkedin = re.findall(r'(https?://[a-z]+\.linkedin\.com/company/[^"\'\s]+)', html)
-    if linkedin:
-        socials.append(("LinkedIn", linkedin[0]))
-    facebook = re.findall(r'(https?://[a-z]+\.facebook\.com/[^"\'\s]+)', html)
-    if facebook:
-        socials.append(("Facebook", facebook[0]))
-    instagram = re.findall(r'(https?://[a-z]+\.instagram\.com/[^"\'\s]+)', html)
-    if instagram:
-        socials.append(("Instagram", instagram[0]))
-    if not socials:
-        socials.append(("", "未找到公开社媒"))
-
-    ecommerce = []
-    if 'amazon' in html:
-        ecommerce.append("Amazon")
-    if 'ebay' in html:
-        ecommerce.append("eBay")
-    ecommerce_str = ", ".join(ecommerce) if ecommerce else "未发现"
-
     phones = re.findall(r'[\+\(]?[0-9][0-9 .\-\(\)]{7,}[0-9]', html)
     contact = "邮箱: " + (", ".join(emails) if emails else "无") + "; 电话: " + (phones[0] if phones else "官网表单")
 
-    matched = [kw for kw in evidence_keywords if kw.lower() in text.lower()]
     return {
         '公司名称': company,
         '官网': url,
-        '匹配产品': ', '.join(matched[:3]),
-        '社媒': socials,
-        '规模': '中小型',
-        '电商渠道': ecommerce_str,
+        '匹配产品': '',
         '联系方式': contact,
-        '疑似批发/进口商': '是' if is_role else '可能（未提及）'
-    }, ""
+        'html': html,
+    }
 
-# DuckDuckGo 搜索封装
-def duckduckgo_search(query, max_results=5):
+def get_website_images(html, base_url, max_images=3):
+    soup = BeautifulSoup(html, 'html.parser')
+    img_tags = soup.find_all('img', src=True)
+    img_urls = []
+    for img in img_tags:
+        src = img['src']
+        if not src.startswith('http'):
+            src = requests.compat.urljoin(base_url, src)
+        if src not in img_urls:
+            img_urls.append(src)
+        if len(img_urls) >= max_images:
+            break
+    return img_urls
+
+def download_image(img_url, timeout=8):
+    try:
+        resp = requests.get(img_url, timeout=timeout, headers={'User-Agent': 'Mozilla/5.0'})
+        if resp.status_code == 200:
+            return Image.open(io.BytesIO(resp.content)).convert("RGB")
+    except:
+        pass
+    return None
+
+def compute_similarity(user_features, website_images):
+    if not website_images:
+        return 0.0, None
+    sims, valid_imgs = [], []
+    for img_url in website_images:
+        pil_img = download_image(img_url)
+        if pil_img:
+            feat = get_image_features(pil_img)
+            sim = cosine_similarity([user_features], [feat])[0][0]
+            sims.append(sim)
+            valid_imgs.append(pil_img)
+    if not sims:
+        return 0.0, None
+    max_idx = np.argmax(sims)
+    return sims[max_idx], valid_imgs[max_idx]
+
+def duckduckgo_search(query, region, max_results=5):
     try:
         with DDGS() as ddgs:
-            results = [r['href'] for r in ddgs.text(query, max_results=max_results)]
-            return results
+            return [r['href'] for r in ddgs.text(query, region=region, max_results=max_results)]
     except Exception as e:
-        st.warning(f"DuckDuckGo 搜索出错: {e}")
+        st.warning(f"搜索出错: {e}")
         return []
 
-# ==================== 主界面 ====================
+# ==================== 会话状态初始化 ====================
+if 'excluded_domains' not in st.session_state:
+    st.session_state.excluded_domains = set()
+if 'uploaded_images' not in st.session_state:
+    st.session_state.uploaded_images = []
+if 'user_image_features' not in st.session_state:
+    st.session_state.user_image_features = None
+if 'search_count' not in st.session_state:
+    st.session_state.search_count = 0
+
+# ==================== 侧边栏 ====================
 with st.sidebar:
     st.header("🌍 搜索配置")
     selected_country = st.selectbox("选择目标国家", list(COUNTRY_CONFIG.keys()))
     config = COUNTRY_CONFIG[selected_country]
 
-    st.subheader("📦 勾选要搜索的产品线")
-    selected_lines = []
-    for line_name, line_data in config['product_lines'].items():
-        if st.checkbox(line_name, value=True):
-            selected_lines.append(line_name)
-
     cities = st.multiselect("选择城市", config['cities'], default=config['cities'][:3])
 
-    with st.expander("📄 上传产品目录PDF（辅助确认关键词）"):
-        pdf_file = st.file_uploader("选择PDF文件", type=["pdf"])
-        manual_keywords = st.text_area(
-            "手动输入搜索关键词（每行一个，将覆盖产品线选择）",
-            value="",
-            placeholder="例如：Bremskolbenrückstellsatz\nZylinderdruckprüfer",
-            height=80
-        )
-        if pdf_file:
-            images = render_pdf_previews(pdf_file)
-            if images:
-                st.success(f"已加载 {len(images)} 页")
-                for i, img in enumerate(images):
-                    st.image(img, caption=f"第 {i+1} 页", width=300)
-                ocr_text = ocr_from_images(images)
-                st.text_area("OCR提取文字参考", value=ocr_text, height=100)
-            else:
-                st.error("PDF渲染失败")
+    st.subheader("📷 上传产品图片")
+    uploaded_files = st.file_uploader("选择1-5张产品照片", type=["png", "jpg", "jpeg"],
+                                      accept_multiple_files=True, key="image_uploader")
 
-if st.button("🚀 开始搜索", type="primary"):
-    if not selected_lines and not manual_keywords.strip():
-        st.error("请至少勾选一条产品线或手动输入关键词")
+    if uploaded_files:
+        st.session_state.uploaded_images = [Image.open(f).convert("RGB") for f in uploaded_files]
+        features_list = [get_image_features(img) for img in st.session_state.uploaded_images]
+        st.session_state.user_image_features = np.mean(features_list, axis=0)
+        cols = st.columns(len(uploaded_files))
+        for idx, img in enumerate(st.session_state.uploaded_images):
+            cols[idx].image(img, width=80, caption=f"图{idx+1}")
+    else:
+        st.session_state.uploaded_images = []
+        st.session_state.user_image_features = None
+
+    st.subheader("🔧 关键词设置")
+    manual_keywords = st.text_area("手动补充关键词（每行一个）", height=80)
+
+    auto_keywords = []
+    if st.session_state.uploaded_images:
+        product_line_names = list(config['product_lines'].keys())
+        predicted_lines = set()
+        for img in st.session_state.uploaded_images:
+            line, conf = classify_image(img, product_line_names)
+            if conf > 0.25:
+                predicted_lines.add(line)
+        if predicted_lines:
+            st.success(f"图片识别产品线: {', '.join(predicted_lines)}")
+            for line in predicted_lines:
+                auto_keywords.extend(config['product_lines'][line]['search'])
+            auto_keywords = list(set(auto_keywords))
+        else:
+            st.warning("无法自动识别产品线，将仅使用手动关键词")
+
+    if manual_keywords.strip():
+        manual_list = [k.strip() for k in manual_keywords.splitlines() if k.strip()]
+        final_keywords = list(set(auto_keywords + manual_list))
+    else:
+        final_keywords = auto_keywords
+
+    if final_keywords:
+        st.text(f"最终搜索词数量: {len(final_keywords)}")
+        with st.expander("查看搜索词"):
+            st.write(final_keywords)
+
+    st.markdown("---")
+    st.caption("已排除公司域名数: " + str(len(st.session_state.excluded_domains)))
+    if st.button("清空排除列表，重新开始"):
+        st.session_state.excluded_domains.clear()
+        st.session_state.search_count = 0
+        st.rerun()
+
+# ==================== 搜索主逻辑 ====================
+def search_and_collect_leads(keywords, config, excluded_domains, user_features=None, max_new=5):
+    new_leads = []
+    seen_domains = excluded_domains.copy()
+    region = config.get("region", "us-en")
+
+    # 查询组合：产品词 + 角色词（不加城市，由region限制）
+    queries = []
+    for kw in keywords:
+        role = random.choice(config['role_words'])
+        queries.append(f"{kw} {role}")
+    random.shuffle(queries)
+
+    for q in queries:
+        if len(new_leads) >= max_new:
+            break
+        urls = duckduckgo_search(q, region=region, max_results=5)
+        for url in urls:
+            domain = urlparse(url).netloc
+            if domain in seen_domains:
+                continue
+            html = fetch_page(url)
+            if not html:
+                continue
+            info = extract_info(html, url, config['exclude_words'], keywords)
+            if not info:
+                seen_domains.add(domain)
+                continue
+            # 图片相似度
+            if user_features is not None:
+                img_urls = get_website_images(html, url, max_images=3)
+                sim, best_img = compute_similarity(user_features, img_urls)
+                info['相似度'] = f"{sim*100:.1f}%"
+                info['网站图片'] = best_img
+            else:
+                info['相似度'] = "未启用"
+                info['网站图片'] = None
+            # 匹配的产品词
+            matched_kw = [kw for kw in keywords if kw.lower() in html.lower()]
+            info['匹配产品'] = ', '.join(matched_kw[:3]) if matched_kw else "通用匹配"
+            new_leads.append(info)
+            seen_domains.add(domain)
+            if len(new_leads) >= max_new:
+                break
+        time.sleep(1)
+    return new_leads
+
+if st.button("🔍 搜索5家新公司", type="primary"):
+    if not final_keywords:
+        st.error("请至少上传图片或输入关键词")
     elif not cities:
         st.error("请至少选择一个城市")
     else:
-        # 关键词准备
-        if manual_keywords.strip():
-            search_keywords = [k.strip() for k in manual_keywords.splitlines() if k.strip()]
-            evidence_keywords = []
-            for line in config['product_lines'].values():
-                evidence_keywords.extend(line['evidence'])
+        with st.spinner("正在搜索客户并分析图片相似度..."):
+            leads = search_and_collect_leads(
+                final_keywords, config,
+                st.session_state.excluded_domains,
+                st.session_state.user_image_features,
+                max_new=5
+            )
+        if leads:
+            st.session_state.search_count += 1
+            st.session_state['last_leads'] = leads
+            for lead in leads:
+                domain = urlparse(lead['官网']).netloc
+                st.session_state.excluded_domains.add(domain)
+            st.success(f"第 {st.session_state.search_count} 次搜索，找到 {len(leads)} 家新公司")
         else:
-            search_keywords = []
-            evidence_keywords = []
-            for line_name in selected_lines:
-                line = config['product_lines'][line_name]
-                search_keywords.extend(line['search'])
-                evidence_keywords.extend(line['evidence'])
+            st.warning("未找到新公司，请尝试更换关键词或城市。")
 
-        # 生成查询组合
-        queries = []
-        for kw in search_keywords:
-            for role in random.sample(config['role_words'], min(2, len(config['role_words']))):
-                for city in cities:
-                    queries.append(f"{kw} {role} {city}")
+# 展示结果
+if 'last_leads' in st.session_state:
+    leads = st.session_state.last_leads
+    for i, lead in enumerate(leads, 1):
+        with st.container():
+            st.subheader(f"{i}. {lead['公司名称']}")
+            st.markdown(f"🌐 官网: [{lead['官网']}]({lead['官网']})")
+            st.markdown(f"🔧 匹配产品: {lead['匹配产品']}")
+            st.markdown(f"📞 联系方式: {lead['联系方式']}")
 
-        st.info(f"共 {len(queries)} 组搜索任务，使用 DuckDuckGo，请稍候...")
-        all_leads = []
-        seen = set()
-        debug_logs = []  # 用于实时展示处理详情
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+            if lead.get('网站图片'):
+                col1, col2, col3 = st.columns([1, 1, 1])
+                with col1:
+                    if st.session_state.uploaded_images:
+                        st.image(st.session_state.uploaded_images[0], caption="你的产品", width=200)
+                with col2:
+                    st.image(lead['网站图片'], caption=f"客户网站图片", width=200)
+                with col3:
+                    st.metric("图片相似度", lead.get('相似度', 'N/A'))
+            else:
+                st.caption("未找到可对比的产品图片")
+            st.markdown("---")
 
-        for i, q in enumerate(queries):
-            status_text.text(f"正在搜索: {q}")
-            progress_bar.progress((i+1)/len(queries))
-            urls = duckduckgo_search(q, max_results=5)
-            debug_logs.append(f"查询: {q} → 返回 {len(urls)} 条结果")
-            for url in urls:
-                domain = urlparse(url).netloc
-                if domain in seen:
-                    continue
-                seen.add(domain)
-                html = fetch_page(url)
-                if not html:
-                    debug_logs.append(f"  ❌ 无法访问: {url}")
-                    continue
-                lead, reason = extract_lead(html, url, config['exclude_words'], config['role_words'], evidence_keywords)
-                if lead:
-                    all_leads.append(lead)
-                    debug_logs.append(f"  ✅ 匹配: {lead['公司名称']} ({url})")
-                else:
-                    debug_logs.append(f"  ⏩ 跳过 ({reason}): {url}")
-                time.sleep(random.uniform(1, 2))  # 礼貌延迟
-            time.sleep(1)  # 组间延迟
-
-        progress_bar.empty()
-        status_text.empty()
-
-        # 显示调试面板
-        with st.expander("🔍 调试信息（点击展开）"):
-            for log in debug_logs:
-                st.write(log)
-
-        if not all_leads:
-            st.warning("未找到匹配客户。请尝试减少城市或更换关键词。")
-        else:
-            # 去重
-            unique_leads = []
-            names = set()
-            for l in all_leads:
-                if l['公司名称'] not in names:
-                    names.add(l['公司名称'])
-                    unique_leads.append(l)
-            final = unique_leads[:10]  # 展示前10条
-
-            st.success(f"找到 {len(unique_leads)} 家匹配公司，显示前 {len(final)} 家。")
-            for i, lead in enumerate(final, 1):
-                with st.container():
-                    st.subheader(f"{i}. {lead['公司名称']}")
-                    st.markdown(f"🌐 官网: [{lead['官网']}]({lead['官网']})")
-                    social_links = []
-                    for name, link in lead['社媒']:
-                        if name and link.startswith('http'):
-                            social_links.append(f"[{name}]({link})")
-                        else:
-                            social_links.append(link)
-                    st.markdown(f"📱 社媒: {' · '.join(social_links)}")
-                    st.markdown(f"🔧 匹配产品: {lead['匹配产品']}")
-                    st.markdown(f"🏢 规模: {lead['规模']} | 🛒 电商: {lead['电商渠道']} | 🔎 批发/进口商迹象: {lead['疑似批发/进口商']}")
-                    st.markdown(f"📞 联系方式: {lead['联系方式']}")
-                    st.markdown("---")
-
-            # 导出 CSV
-            df = pd.DataFrame(final)
-            df['社媒'] = df['社媒'].apply(lambda x: '; '.join([f"{n}: {l}" for n, l in x]) if isinstance(x, list) else x)
-            csv = df.to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 下载结果 CSV", csv, "global_leads.csv", "text/csv")
+    df = pd.DataFrame(leads)
+    df = df[['公司名称', '官网', '匹配产品', '联系方式', '相似度']]
+    csv = df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("📥 下载本次结果 CSV", csv, f"leads_{st.session_state.search_count}.csv", "text/csv")
+else:
+    st.info("点击上方按钮开始搜索，每次返回5家不重复的公司")
