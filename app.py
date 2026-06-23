@@ -6,7 +6,7 @@ import random
 import pandas as pd
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
-from ddgs import DDGS
+from ddgs import DDGS  # 使用新包
 from PIL import Image
 import torch
 import clip
@@ -520,7 +520,7 @@ if st.button("🔍 搜索5家新公司", type="primary"):
         else:
             st.warning("未找到新公司，请尝试更换关键词或城市。")
 
-# ==================== 显示结果（已修复 key 问题） ====================
+# ==================== 显示结果（已修复 key） ====================
 if 'last_leads' in st.session_state:
     leads = st.session_state.last_leads
     for i, lead in enumerate(leads, 1):
