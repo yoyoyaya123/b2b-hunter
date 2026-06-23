@@ -1,10 +1,2 @@
-poppler-utils
-tesseract-ocr
-tesseract-ocr-eng
-tesseract-ocr-deu
-tesseract-ocr-fra
-tesseract-ocr-spa
-tesseract-ocr-por
-tesseract-ocr-ita
-tesseract-ocr-chi-sim
-tesseract-ocr-chi-tra
+libgl1-mesa-glx
+libglib2.0-0
