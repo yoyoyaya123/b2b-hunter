@@ -10,9 +10,9 @@ from ddgs import DDGS
 
 st.set_page_config(page_title="JYTOOL 汽保工具 B2B 精准获客", layout="wide")
 st.title("🔧 JYTOOL 汽保工具 · 全球 B2B 经销商精准搜索")
-st.markdown("🎯 **搜索逻辑**: 针对全球汽保设备经销商。自动屏蔽中国平台，数据持久保留且不重复，内置资深外贸业务员深度背调引擎。")
+st.markdown("🎯 **特色**: 自动屏蔽中国同行、数据持久去重保存、生成 0 成本高阶 AI 调研指令（支持亚马逊中国卖家排查）。")
 
-# ==================== 黑名单配置 (屏蔽中国网站与B2B平台) ====================
+# ==================== 黑名单配置 (屏蔽中国网站) ====================
 CHINA_BLOCKLIST = [
     ".cn", ".com.cn", ".tw", ".hk", 
     "alibaba.com", "aliexpress.com", "1688.com", "taobao.com", "jd.com", 
@@ -20,7 +20,7 @@ CHINA_BLOCKLIST = [
     "tradekey.com", "hktdc.com"
 ]
 
-# ==================== 全球语言区配置 (对齐JYTOOL PDF目录) ====================
+# ==================== 全球语言区配置 ====================
 COUNTRY_CONFIG = {
     "英国/美国/斯里兰卡等(英文区)": {
         "region": "us-en",
@@ -80,7 +80,6 @@ def score_lead(html, url, config, keywords):
     text = soup.get_text().lower()
     domain = urlparse(url).netloc
     
-    # 排除B2C修车店 (除非是Facebook主页)
     if "facebook.com" not in domain:
         for word in config['exclude_words']:
             if word.lower() in text:
@@ -91,18 +90,13 @@ def score_lead(html, url, config, keywords):
         return 0, None 
     
     score = 10 
-    if len(matched_kw) >= 3:
-        score += 30 
-    elif len(matched_kw) == 2:
-        score += 15
+    if len(matched_kw) >= 3: score += 30 
+    elif len(matched_kw) == 2: score += 15
 
     role_hit = any(role.lower() in text for role in config['role_words'])
-    if role_hit:
-        score += 20
-    elif "facebook.com" in domain:
-        score += 15 
-    else:
-        return 0, None 
+    if role_hit: score += 20
+    elif "facebook.com" in domain: score += 15 
+    else: return 0, None 
 
     emails = list(dict.fromkeys(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
     wa_links = list(set(re.findall(r'(https?://(?:wa\.me/|api\.whatsapp\.com/send\?phone=)[0-9]+)', html)))
@@ -118,7 +112,6 @@ def score_lead(html, url, config, keywords):
         contact_parts.append("🌐 FB: " + fb_str)
 
     if not contact_parts: contact_parts.append("官网表单")
-
     company = soup.title.string.strip() if soup.title else domain
 
     return score, {
@@ -136,7 +129,7 @@ def duckduckgo_search(query, region, max_results=5):
     except:
         return []
 
-# ==================== 数据持久化 ====================
+# ==================== 数据与状态持久化 ====================
 if 'excluded_domains' not in st.session_state: st.session_state.excluded_domains = set()
 if 'all_leads' not in st.session_state: st.session_state.all_leads = []
 if 'current_page' not in st.session_state: st.session_state.current_page = 0
@@ -160,7 +153,6 @@ with st.sidebar:
 
     st.markdown("---")
     st.success(f"已沉淀客户数据: {len(st.session_state.all_leads)} 家")
-    st.caption(f"已排查(防重复)域名: {len(st.session_state.excluded_domains)} 个")
     if st.button("清空所有记录(重新开始)"):
         st.session_state.excluded_domains.clear()
         st.session_state.all_leads.clear()
@@ -181,11 +173,7 @@ def search_leads(keywords, config, excluded_domains, max_new=5):
         urls = duckduckgo_search(q, region=config.get("region", "us-en"), max_results=5)
         for url in urls:
             domain = urlparse(url).netloc.lower()
-            
-            # 1. 拦截中国网站与B2B平台
             if any(b in domain for b in CHINA_BLOCKLIST): continue
-            
-            # 2. 拦截已经搜索过的域名（防重复）
             if domain in seen and "facebook.com" not in domain: continue
             
             html = fetch_page(url)
@@ -217,7 +205,7 @@ if st.button("🔍 挖掘 5 家全新经销商", type="primary"):
         else:
             st.warning("暂未发现有效客户，系统可能需要更多时间或请尝试更换国家区。")
 
-# ==================== 分页与深度背调 ====================
+# ==================== 分页与零成本背调提示词 ====================
 if st.session_state.all_leads:
     total_leads = len(st.session_state.all_leads)
     total_pages = (total_leads - 1) // 5 + 1
@@ -243,55 +231,46 @@ if st.session_state.all_leads:
     for i in range(start_idx, end_idx):
         lead = st.session_state.all_leads[i]
         score_color = "🔥" if lead['产品数'] >= 3 else "🟢"
+        lead_url = lead['官网/主页']
         
         st.subheader(f"{i+1}. {score_color} {lead['公司名称']} (综合评分: {lead['评分']})")
-        st.markdown(f"**官网/主页**: [{lead['官网/主页']}]({lead['官网/主页']})")
+        st.markdown(f"**官网/主页**: [{lead_url}]({lead_url})")
         st.markdown(f"🎯 **匹配产品**: `{lead['匹配产品']}` | 📞 **联系方式**: {lead['联系方式']}")
         
-        # 核心修改点：AI 深度背调与销售策略生成器
-        with st.expander("🤖 资深业务员：生成 AI 深度背调与跟进策略"):
-            st.info("💡 请复制下方系统为您自动生成的深度调研指令，发送给大模型（如 ChatGPT / Claude / DeepSeek），即可获取终极分析报告。")
+        # === 零成本：一键复制给免费版 AI 的提示词 ===
+        with st.expander("🤖 0成本：获取 AI 深度背调专属指令"):
+            st.info("💡 **操作指南**：点击代码框右上角的【复制图标】，将下方内容直接发给 **DeepSeek网页版、Kimi 或 ChatGPT(免费版)** 即可获取深度报告！")
             
             prompt_text = f"""您是一位资深且顶尖的外贸业务员，你要帮助我进行全世界网络的深度搜索并进行深度思考。
 
 任务：
-一.根据我提供的客户公司的部分信息，帮我调研客户的完整公司信息，包括：
-1.公司名称
-2.公司介绍
-3.经营地址
-4.官方网站
-5.Facebook/Insgram/领英(账号名称和网址；线下实体店名称和地址)
-6.是否以电商平台作为销售渠道(给出店铺名称和网址）
+一.根据我提供的客户公司的部分信息，帮我通过互联网检索并调研客户的完整公司信息，包括：
+1.公司名称、2.公司介绍、3.经营地址、4.官方网站
+5.Facebook/Insgram/领英(账号名称和网址；线下门店名称和地址)
+6.电商平台(亚马逊等)渠道。
+【极其重要】：如果有亚马逊等电商平台店铺，请必须深度核实是否为中国跨境卖家同行（判断依据：发货地是否在国内、公司名是否含拼音/Shenzhen/Guangzhou/Trading/Ltd等特征）。如果是中国卖家，请醒目标记【🚨注意：此客户可能是中国跨境卖家同行，不建议开发】；如果是真实的海外本土商家，请标记【✅优质海外本土商家】。
 7.主要经营产品
-8.公司员工的Whatsapp和邮箱等联系方式（涵盖初级采购员到高级决策者）
-9.核心痛点:他们在寻找供应商时面临的3个主要挑战(如质量、起订量、合规)
+8.公司员工的Whatsapp/邮箱联系方式（涵盖初中高级决策者）
+9.核心痛点:寻找供应商时面临的3个主要挑战
 10.决策因素:哪些因素会让他们立刻下单？
-11.定制化需求
-12.商业模式
-13.产品策略
-14.终端用户画像
+11.定制化需求、12.商业模式、13.产品策略、14.终端用户画像
 
-二.结合我们的来源文件(仅作参考)与我提供的客户询盘产品，深度思考：
-1.该产品在当地市场的批发价格和零售价格
-2.该产品在当地市场的近三年每个月的销售数据
-3.该产品在当地市场的未来三年销售趋势分析
-
-三.结合来源文件与调研得出的客户主要经营产品，深度思考：
-1.我还可以给客户推荐来源文件中的其他什么产品以及推荐策略
-
-情境：在整个对话过程中始终考虑情境，确保回答与之前的所有对话内容相关。
-格式：使用专业且简洁的措辞，分点陈述。
+二.结合我方供应信息，深度思考：
+1.该产品在当地市场的批发和零售价格
+2.近三年每个月的销售数据(合理预估或调取宏观数据)
+3.未来三年销售趋势分析
+4.交叉推荐策略：还可以推荐我方目录中的哪些产品？
 
 【目标客户初始信息】
 公司名称：{lead['公司名称']}
-官方网站：{lead['官网/主页']}
+官方网站：{lead_url}
 已提取的联系方式：{lead['联系方式']}
 我们侦测到他经营的产品：{lead['匹配产品']}
 
-【我方供应信息参考】
-我们是“诸暨金越五金工具有限公司 (JYTOOL)”，主营优质汽保设备：
-01仪表检测工具(水箱漏测仪、汽缸压力表等)、02液体更换工具(刹车油更换机、抽油器等)、03空调制冷工具(冷媒表、加氟管)、04车身拆卸卡扣、05发动机正时工具。
+【我方供应信息】
+中国诸暨金越五金工具 (JYTOOL)，主营：01仪表检测工具(水箱漏测仪等)、02液体更换工具(刹车油更换机等)、03空调制冷工具(冷媒表等)、04车身拆卸卡扣、05发动机正时工具。
 
-请立即开始您的调研与深度思考报告。"""
+请使用专业外贸术语，输出排版清晰的背调报告。"""
+            
             st.code(prompt_text, language="markdown")
         st.markdown("---")
