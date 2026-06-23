@@ -5,5 +5,6 @@ tesseract-ocr-deu
 tesseract-ocr-fra
 tesseract-ocr-spa
 tesseract-ocr-por
+tesseract-ocr-ita
 tesseract-ocr-chi-sim
 tesseract-ocr-chi-tra
