@@ -4,6 +4,8 @@ import re
 import time
 import random
 import pandas as pd
+import json
+import os
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from ddgs import DDGS
@@ -12,13 +14,55 @@ st.set_page_config(page_title="JYTOOL 全球 B2B 精准获客神器", layout="wi
 st.title("🔧 JYTOOL 汽保工具 · 全球无限制 B2B 经销商搜索")
 st.markdown("🎯 **系统特色**: 支持全球任意国家自定义搜索！内置 **14维度标准客户背调档案** 自动生成器。")
 
+# ==================== 数据持久化 ====================
+DATA_FILE = "jytool_database.json"
+
+def load_data():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return (
+                    data.get("all_leads", []), 
+                    set(data.get("excluded_domains", [])), 
+                    data.get("local_reports", {})
+                )
+        except Exception as e:
+            st.error(f"加载数据失败: {e}")
+    return [], set(), {}
+
+def save_data():
+    data = {
+        "all_leads": st.session_state.all_leads,
+        "excluded_domains": list(st.session_state.excluded_domains), # Set 不能直接 JSON 序列化，转为 list
+        "local_reports": st.session_state.local_reports
+    }
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+# 初始化 Session State，从本地 JSON 文件读取
+if 'data_loaded' not in st.session_state:
+    loaded_leads, loaded_domains, loaded_reports = load_data()
+    st.session_state.all_leads = loaded_leads
+    st.session_state.excluded_domains = loaded_domains
+    st.session_state.local_reports = loaded_reports
+    st.session_state.current_page = 0
+    st.session_state.last_search_count = 0
+    st.session_state.data_loaded = True
+
+
 # ==================== 终极黑名单配置 ====================
 PLATFORM_BLOCKLIST = [
     "iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", 
     "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", 
     "made-in-china.", "alibaba.", "aliexpress.", "amazon.", "ebay.", "walmart.", "shopee.", 
     "lazada.", "indiamart.", "tradekey.", "hktdc.", "etsy.", "wayfair.", "temu.", "shein.",
-    "trustpilot.", "manufacturers.", "suppliers.", ".cn", ".com.cn", ".tw", ".hk"
+    "trustpilot.", "manufacturers.", "suppliers.", ".cn", ".com.cn", ".tw", ".hk",
+    # 新增：屏蔽全球连锁汽配/五金零售巨头及比价网
+    "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.",
+    "grainger.", "fastenal.", "mscdirect.", "homedepot.", "lowes.", "menards.",
+    "target.", "costco.", "carrefour.", "aldi.", "tesco.", "macys.", 
+    "snap-on.", "mactools.", "matcotools.", "harborfreight.", "shopping.", "prices."
 ]
 
 CHINA_GEO_BLOCKLIST = [
@@ -29,6 +73,12 @@ CHINA_GEO_BLOCKLIST = [
     "beijing", "tianjin", "+86 ", "0086", "86-1", "86-0", 
     "made in china", "china mainland", "mainland china", "chinese supplier",
     "zhuji", "jinyue"
+]
+
+B2C_INTEGRATOR_BLOCKLIST = [
+    "superstore", "hypermarket", "b2c", "consumer reviews", 
+    "shopping mall", "franchise", "compare prices", 
+    "retail store", "consumer electronics", "add to basket"
 ]
 
 TITLE_BLOCKLIST = ["directory", "top 10", "top 20", "top 5", "list of", "manufacturers in", "suppliers of", "best suppliers"]
@@ -96,6 +146,10 @@ def score_lead(html, url, config, keywords, custom_excludes):
     if any(t_word in title_lower for t_word in TITLE_BLOCKLIST): return 0, None
     for geo_word in CHINA_GEO_BLOCKLIST:
         if geo_word in text: return 0, None
+        
+    # 过滤 C端零售与大型品牌集成站
+    for b2c_word in B2C_INTEGRATOR_BLOCKLIST:
+        if b2c_word in text: return 0, None
 
     exclude_list = custom_excludes if custom_excludes else config.get('exclude_words', [])
     if "facebook.com" not in domain:
@@ -146,7 +200,8 @@ def score_lead(html, url, config, keywords, custom_excludes):
 
 def duckduckgo_search(query, region, max_results=20):
     try:
-        strict_query = query + ' -directory -b2b -amazon -ebay -alibaba -aliexpress -"made in china" -"list of" -"top 10"'
+        # 强力过滤指令，在搜索引擎阶段排挤B2C和大卖场
+        strict_query = query + ' -directory -b2b -amazon -ebay -alibaba -aliexpress -"made in china" -"list of" -"top 10" -retail -superstore -franchise -autozone -grainger'
         return [r['href'] for r in DDGS().text(strict_query, region=region, max_results=max_results)]
     except:
         return []
@@ -226,12 +281,6 @@ def local_background_check(lead, country):
 """
     return report
 
-# ==================== 数据持久化 ====================
-if 'excluded_domains' not in st.session_state: st.session_state.excluded_domains = set()
-if 'all_leads' not in st.session_state: st.session_state.all_leads = []
-if 'current_page' not in st.session_state: st.session_state.current_page = 0
-if 'last_search_count' not in st.session_state: st.session_state.last_search_count = 0
-if 'local_reports' not in st.session_state: st.session_state.local_reports = {}
 
 # ==================== 侧边栏配置 ====================
 with st.sidebar:
@@ -281,6 +330,7 @@ with st.sidebar:
         st.session_state.excluded_domains.clear()
         st.session_state.all_leads.clear()
         st.session_state.local_reports.clear()
+        save_data() # 覆盖清空本地文件
         st.session_state.current_page = 0
         st.session_state.last_search_count = 0
         st.rerun()
@@ -341,6 +391,7 @@ if st.button(f"🔍 强力挖掘 5 家 【{display_country_name}】 独立经销
             for l in leads: st.session_state.excluded_domains.add(urlparse(l['官网/主页']).netloc.lower())
             st.session_state.last_search_count += 1
             st.session_state.current_page = (len(st.session_state.all_leads) - 1) // 5
+            save_data() # 保存新搜到的线索和排雷名单到本地
             st.success(f"成功斩获 {len(leads)} 家深藏在 {display_country_name} 本地的纯净独立经销商！")
             if len(leads) < 5:
                 st.warning(f"目前排华与反黄页机制极为苛刻，竭尽全力挖出 {len(leads)} 家合规客户，请再次点击按钮继续深挖。")
@@ -389,5 +440,6 @@ if st.session_state.all_leads:
                     time.sleep(1)
                     report_content = local_background_check(lead, display_country_name)
                     st.session_state.local_reports[lead_url] = report_content
+                    save_data() # 生成报告后同步保存到本地
                     st.rerun()
         st.markdown("---")
