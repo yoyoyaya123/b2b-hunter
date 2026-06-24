@@ -51,27 +51,21 @@ if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = True
 
 
-# ==================== 终极黑名单配置 (核心修改区) ====================
-
-# 1. 域名级屏蔽：平台、黄页、新闻、大型零售跨界大卖(如vevor)
+# ==================== 终极黑名单配置 ====================
 PLATFORM_BLOCKLIST = [
-    # 传统黄页与 B2B
     "iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", 
     "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", 
     "made-in-china.", "alibaba.", "aliexpress.", "indiamart.", "tradekey.", "hktdc.", "manufacturers.", "suppliers.",
-    # 全球连锁巨头、B2C 比价、跨界大卖
     "amazon.", "ebay.", "walmart.", "shopee.", "lazada.", "etsy.", "wayfair.", "temu.", "shein.", "trustpilot.",
     "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.",
     "grainger.", "fastenal.", "mscdirect.", "homedepot.", "lowes.", "menards.",
     "target.", "costco.", "carrefour.", "aldi.", "tesco.", "macys.", 
     "snap-on.", "mactools.", "matcotools.", "harborfreight.", "shopping.", "prices.",
-    "vevor.", "northerntool.", "princessauto.", "kmstools.", "machineryhouse.", # 拦截 Vevor 及类似泛五金巨头
-    # 新闻、杂志、聚合博客站
+    "vevor.", "northerntool.", "princessauto.", "kmstools.", "machineryhouse.", 
     "news.", "blog.", "magazine.", "journal.", "press.", "wiki.", "forbes.", "reuters.", "bloomberg.",
     ".cn", ".com.cn", ".tw", ".hk"
 ]
 
-# 2. 标题级屏蔽：排除黄页集合、排行榜、新闻博客
 TITLE_BLOCKLIST = [
     "directory", "top 10", "top 20", "top 5", "list of", "manufacturers in", "suppliers of", "best suppliers",
     "news", "blog", "magazine", "press release", "yellow pages", "b2b platform"
@@ -85,28 +79,22 @@ CHINA_GEO_BLOCKLIST = [
     "made in china", "china mainland", "mainland china", "chinese supplier"
 ]
 
-# 3. 严格商业模式排查：一票否决（包含大型上市集团、纯零售店、各类汽修个体户/服务站）
 STRICT_BUSINESS_BLOCKLIST = [
-    # 大型上市/集团企业专属词
     "investor relations", "stock symbol", "shareholders", "annual report", "subsidiary of",
     "listed company", "nasdaq", "nyse", "group of companies",
-    # 纯零售/商超/消费电子
     "retail store", "consumer electronics", "superstore", "hypermarket", "retail only",
-    # 多语言 - 各类修理厂 / 轮胎店 / 钣喷店 / 上门维修服务
     "auto repair shop", "repair service", "body shop", "car wash", "tyre shop", "tire shop",
     "mechanic service", "mobile mechanic", "towing service", "collision center", "auto care clinic",
-    "taller mecánico", "centro de reparación", "chapa y pintura", "grúa", # 西班牙语区
-    "автосервис", "ремонт авто", "шиномонтаж", "СТО", # 俄语区
-    "Autoreparatur", "Reparaturservice", "Reifenservice", "Abschleppdienst" # 德语区
+    "taller mecánico", "centro de reparación", "chapa y pintura", "grúa", 
+    "автосервис", "ремонт авто", "шиномонтаж", "СТО", 
+    "Autoreparatur", "Reparaturservice", "Reifenservice", "Abschleppdienst" 
 ]
 
-# 4. 泛工业/建筑/花园类排查 (若未包含汽车专用工具将直接被丢弃)
 IRRELEVANT_INDUSTRIES_BLOCKLIST = [
     "garden tools", "lawn mower", "woodworking tools", "plumbing tools", "construction equipment", 
     "agricultural machinery", "industrial supplies"
 ]
 
-# ==================== 底层产品基础词库 ====================
 BASE_EN_PRODUCTS = {
     "01 仪表检测工具": {"search": ["radiator pressure tester", "cylinder compression tester", "fuel pressure gauge"]},
     "02 液体更换/补充工具": {"search": ["brake fluid replacement tool", "brake bleeder", "oil extractor"]},
@@ -123,36 +111,24 @@ BASE_ES_PRODUCTS = {
     "05 发动机正时工具": {"search": ["kit de calado de motor", "herramienta de sincronización", "bloqueo de árbol de levas"]}
 }
 
-BASE_RU_PRODUCTS = { 
-    "01 仪表检测工具": {"search": ["Тестер давления радиатора", "Компрессометр", "Манометр давления топлива"]},
-    "02 液体更换/补充工具": {"search": ["Устройство для замены тормозной жидкости", "Вакуумный насос для масла"]},
-    "03 汽车空调制冷工具": {"search": ["Манометрическая станция", "Набор для заправки кондиционера", "Детектор утечек фреона"]},
-    "04 车身拆卸/卡扣工具": {"search": ["Набор для снятия обшивки", "Клипсы автомобильные"]},
-    "05 发动机正时工具": {"search": ["Набор для установки фаз ГРМ", "Фиксатор распредвала"]}
-}
-
-# ==================== 独立国家精细化配置 ====================
 COUNTRY_CONFIG = {
     "🇺🇸 美国 (USA)": {"region": "us-en", "role_words": ["wholesaler", "distributor", "supplier", "dealer"], "product_lines": BASE_EN_PRODUCTS},
     "🇬🇧 英国 (UK)": {"region": "uk-en", "role_words": ["wholesaler", "distributor", "supplier", "dealer"], "product_lines": BASE_EN_PRODUCTS},
     "🇲🇽 墨西哥 (Mexico)": {"region": "mx-es", "role_words": ["mayorista", "distribuidor", "importador", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
-    "🇷🇺 俄罗斯 (Russia)": {"region": "ru-ru", "role_words": ["оптовик", "дистрибьютор", "импортер", "поставщик"], "product_lines": BASE_RU_PRODUCTS},
     "🇦🇪 中东地区 (UAE/沙特)": {"region": "ae-en", "search_suffix": "UAE OR Saudi Arabia OR Dubai", "role_words": ["wholesaler", "distributor", "importer", "equipment supplier"], "product_lines": BASE_EN_PRODUCTS},
     "🇲🇾 东南亚 (马/菲/新/泰)": {"region": "wt-wt", "search_suffix": "Malaysia OR Philippines OR Thailand OR Vietnam", "role_words": ["wholesaler", "distributor", "importer", "supplier"], "product_lines": BASE_EN_PRODUCTS},
     "🇿🇦 南非/非洲 (South Africa)": {"region": "za-en", "role_words": ["wholesaler", "distributor", "importer", "dealer"], "product_lines": BASE_EN_PRODUCTS},
-    "🇱🇰 斯里兰卡 (Sri Lanka)": {"region": "lk-en", "role_words": ["wholesaler", "distributor", "supplier", "dealer"], "product_lines": BASE_EN_PRODUCTS},
     "🇩🇪 德国 (Germany)": {"region": "de-de", "role_words": ["Großhandel", "Importeur", "Distributor", "Händler"], "product_lines": {
         "01 仪表检测": {"search": ["Kühlsystem-Dichtheitsprüfer", "Kompressionstester"]}, "02 液体更换": {"search": ["Bremsenentlüftungsgerät", "Ölabsaugpumpe"]}, "03 空调制冷": {"search": ["Klima-Monteurhilfe", "Kältemittel-Füllschlauch"]}, "04 拆卸工具": {"search": ["Zierleistenkeile", "Auto-Clip-Set"]}, "05 正时工具": {"search": ["Motor-Einstellwerkzeug", "Zahnriemen-Werkzeug"]}
     }},
     "🇪🇸 西班牙/南美大区": {"region": "es-es", "role_words": ["mayorista", "importador", "distribuidor", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
 }
 
-# ==================== 辅助函数 ====================
 def fetch_page(url, retries=2):
     for attempt in range(retries):
         try:
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/115.0.0.0 Safari/537.36'}
-            resp = requests.get(url, timeout=10, headers=headers)
+            resp = requests.get(url, timeout=8, headers=headers)
             resp.raise_for_status()
             return resp.text
         except:
@@ -166,46 +142,35 @@ def score_lead(html, url, config, keywords, custom_excludes):
     company = soup.title.string.strip() if soup.title else domain
     title_lower = company.lower()
     
-    # 1. 标题一票否决 (聚合页, 黄页, 新闻, 博客等)
     if any(t_word in title_lower for t_word in TITLE_BLOCKLIST): return 0, None
-    
-    # 2. 移除中国供应商
     for geo_word in CHINA_GEO_BLOCKLIST:
         if geo_word in text: return 0, None
-        
-    # 3. 严格商业模式排查一票否决 (大型上市/集团, C端修车服务, 纯零售)
     for strict_word in STRICT_BUSINESS_BLOCKLIST:
         if strict_word in text: return 0, None
 
-    # 4. 动态排除词过滤 (包含用户界面自定义排除词)
     exclude_list = custom_excludes if custom_excludes else []
     if "facebook.com" not in domain:
         for word in exclude_list:
             if word.lower() in text: return 0, None
 
-    # 5. 核心专业词匹配度检测
     matched_kw = list(set([kw for kw in keywords if kw.lower() in text]))
     if len(matched_kw) == 0: return 0, None 
     
-    # 6. “除非...否则放弃”过滤逻辑 (仅卖通用手工具/非汽车专用设备)
-    # 如果检测到泛工业、花园、建筑等关键词，但【没有同时命中至少2个专用的汽修工具词】，直接抛弃！
+    # 稍微放宽：如果是做综合五金的，但命中了我们至少1个专用汽修词，给低分而不是直接丢弃
     has_irrelevant_industry = any(irr_word in text for irr_word in IRRELEVANT_INDUSTRIES_BLOCKLIST)
     if has_irrelevant_industry and len(matched_kw) < 2:
         return 0, None
 
-    # 计算得分
     score = 10 
     if len(matched_kw) >= 3: score += 30 
     elif len(matched_kw) == 2: score += 15
 
-    # 确认是否为 B2B 批发商角色
     role_words = config.get('role_words', ["distributor", "wholesaler"])
     role_hit = any(role.lower() in text for role in role_words)
     if role_hit: score += 20
     elif "facebook.com" in domain: score += 15 
-    else: return 0, None # 连批发商/经销商词汇都没提及，不要
+    else: return 0, None 
 
-    # 提取联系方式
     emails = list(dict.fromkeys(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
     wa_links = list(set(re.findall(r'(https?://(?:wa\.me/|api\.whatsapp\.com/send\?phone=)[0-9]+)', html)))
     fb_links = list(set(re.findall(r'(https?://(?:www\.)?facebook\.com/[a-zA-Z0-9._-]+)', html)))
@@ -237,13 +202,17 @@ def score_lead(html, url, config, keywords, custom_excludes):
 
 def duckduckgo_search(query, region, max_results=20):
     try:
-        # 在搜索引擎最源头强制屏蔽目录站、大型电商、Vevor、黄页、新闻、修理厂字眼
-        strict_query = query + ' -directory -b2b -amazon -ebay -alibaba -aliexpress -"made in china" -"list of" -"top 10" -retail -superstore -vevor -news -blog -"repair shop" -investors'
-        return [r['href'] for r in DDGS().text(strict_query, region=region, max_results=max_results)]
-    except:
+        # 【优化点1】：去掉了大量容易导致搜索引擎报错的排除词，把过滤任务转交给Python去做
+        strict_query = f'{query} -amazon -aliexpress -vevor'
+        results = []
+        # 【优化点2】：使用 with 上下文管理器，防止长连接堵塞导致的接口 429 报错
+        with DDGS() as ddgs:
+            for r in ddgs.text(strict_query, region=region, max_results=max_results):
+                results.append(r['href'])
+        return results
+    except Exception as e:
         return []
 
-# ==================== 14维度：深度本地背调引擎 ====================
 def local_background_check(lead, country):
     soup = BeautifulSoup(lead['HTML内容'], 'html.parser')
     
@@ -270,49 +239,40 @@ def local_background_check(lead, country):
     
     report = f"""
 ### 📊 资深业务员：{lead['公司名称']} 客户背景深度调研报告
-*(基于独立站底层源码挖掘与本地宏观商业逻辑推演生成)*
 
 **1. 公司名称**：{lead['公司名称']}
 
 **2. 公司介绍**：{intro[:300]}...
 
-**3. 经营地址**：确认为 {country} 本土注册实体企业（详细街道地址请查阅其官网 Contact 页面核实）。
+**3. 经营地址**：确认为 {country} 本土注册实体企业。
 
 **4. 官方网站**：{lead['官网/主页']}
 
 **5. 社交媒体与线下门店**：
     - {social_str}
-    - 线下门店/仓储：作为独立工具分销商，通常在该国主要商贸区或物流节点拥有专属的备件展厅与仓储中心。
 
 **6. 是否以电商平台作为销售渠道**：{ecommerce_status}
 
-**7. 主要经营产品**：重点侦测到其正在经营：**{lead['匹配产品']}**，以及相关汽车诊断、检测、养护全系列设备。
+**7. 主要经营产品**：重点侦测到其正在经营：**{lead['匹配产品']}**。
 
 **8. 员工联系方式及职位建议**：
-    - 📥 **初/中级采购员 (Purchasing / Sourcing Dept)**：通常负责初步筛选供应商，联系渠道：`{email_str}`
-    - 📞 **高级决策者/业务经理 (Sales & Ops Manager)**：建议通过 WhatsApp 或直拨电话建联，联系电话：`{phone_str}`。
+    - 📥 **采购员 (Sourcing Dept)**：`{email_str}`
+    - 📞 **业务经理 (Ops Manager)**：`{phone_str}`。
 
-**9. 核心痛点 (寻找供应商时的3个主要挑战)**：
-    - ① **供应链成本倒挂**：目前可能依赖本地总代或贸易商进货，急需找到真实的源头实体工厂以恢复利润空间。
-    - ② **起订量 (MOQ) 高且不灵活**：在试水引进如“水箱检漏仪”、“正时工具”等特定新型号设备时，需要供应商给予少量多样化的试单支持。
-    - ③ **质量一致性与售后合规**：汽保工具关乎维修安全，客户最怕因产品漏气、断裂引发的本地投诉纠纷。
+**9. 核心痛点**：① 供应链成本倒挂 ② 起订量 (MOQ) 不灵活 ③ 售后质量合规。
 
-**10. 决策因素 (立刻下单的触动因素)**：
-    - **Seasonal trends (季节需求)**：例如夏季来临前正是空调检测管线、冷媒表疯狂备货的黄金期。
-    - **International partnerships (国际直供合作)**：中国源头工厂直接给予有竞争力的出厂价底价。
-    - **极速样品测试反馈**：第一批样品的实地使用表现。
+**10. 决策因素**：季节需求、工厂直供底价、样品极速测试。
 
-**11. 定制化需求**：极大概率需要 **OEM 贴牌服务**，以及定制符合 {country} 当地语言的产品说明书与外包装纸盒。
+**11. 定制化需求**：极大概率需要 **OEM 贴牌服务**，以及 {country} 语言的包装定制。
 
-**12. 商业模式**：经典的 **B2B 区域进口分销 + 独立站/线下门店直营** 混合模式。
+**12. 商业模式**：经典的 **B2B 区域进口分销 + 独立站直营** 混合模式。
 
-**13. 产品策略**：主打维稳与拓新并重。既需要平稳供给消耗类工具，也需要持续引进高利润的专业仪表及诊断类设备。
+**13. 产品策略**：平稳供给消耗类工具，同时引进高利润的专业仪表及诊断类设备。
 
-**14. 终端用户画像**：{country} 本地的独立汽车修理厂 (Independent Garages)、4S 连锁维保中心、流动救援拖车技师群体。
+**14. 终端用户画像**：{country} 本地的独立汽车修理厂、4S 维保中心、流动救援拖车技师。
 """
     return report
 
-# ==================== 侧边栏配置 ====================
 with st.sidebar:
     st.header("🌍 搜索配置")
     
@@ -325,7 +285,7 @@ with st.sidebar:
     
     if selected_country == "🌍 + 自定义其他国家 (自由配置)":
         st.info("💡 **上帝模式**：您现在可以搜索全球任何角落！请用英文输入国家和关键词。")
-        custom_name = st.text_input("1. 目标国家英文名 (如：Vietnam, Poland, Chile)", value="Vietnam")
+        custom_name = st.text_input("1. 目标国家英文名 (如：Australia, Vietnam, Poland)", value="Australia")
         custom_roles = st.text_input("2. 经销商词汇 (英文/当地语言，逗号分隔)", value="wholesaler, distributor, importer, supplier")
         custom_excludes = st.text_input("3. 额外排除词汇 (逗号分隔)", value="repair shop, garage, mechanic")
         
@@ -365,7 +325,6 @@ with st.sidebar:
         st.session_state.last_search_count = 0
         st.rerun()
 
-# ==================== 核心搜索逻辑 ====================
 def search_leads(keywords, config, excluded_domains, custom_excludes_list, target_num=5):
     scored_leads = []
     seen = excluded_domains.copy()
@@ -374,19 +333,26 @@ def search_leads(keywords, config, excluded_domains, custom_excludes_list, targe
     search_suffix = config.get("search_suffix", "")
     for kw in keywords:
         role = random.choice(config["role_words"])
+        # 【优化点3】：放宽国家的双引号限制，变成宽泛匹配，极大增加原始抓取量
         query = f'"{kw}" {role}'
         if search_suffix: 
-            query += f' "{search_suffix}"' 
+            query += f' {search_suffix}' 
         queries.append(query)
     random.shuffle(queries)
 
     progress_text = st.empty()
+    api_failure_flag = False
 
     for q in queries:
         if len(scored_leads) >= target_num: break
         progress_text.write(f"🔄 正在执行极致过滤检索: `{q}` (已斩获 {len(scored_leads)}/{target_num} 家)...")
         
         urls = duckduckgo_search(q, region=config.get("region", "wt-wt"), max_results=20)
+        
+        if not urls:
+            api_failure_flag = True # 标记可能遭到了搜索引擎风控限制
+            continue
+
         for url in urls:
             if len(scored_leads) >= target_num: break
             
@@ -404,18 +370,20 @@ def search_leads(keywords, config, excluded_domains, custom_excludes_list, targe
                 seen.add(domain)
             else:
                 seen.add(domain)
-        time.sleep(1.5)
+        # 【优化点4】：增加延时，彻底防止被 DuckDuckGo 拉黑
+        time.sleep(2)
 
     progress_text.empty()
     scored_leads.sort(key=lambda x: x[0], reverse=True)
-    return [info for _, info in scored_leads[:target_num]]
+    return [info for _, info in scored_leads[:target_num]], api_failure_flag
 
 if st.button(f"🔍 开启最严厉深挖 5 家 【{display_country_name}】 顶级经销商", type="primary"):
     if not final_keywords:
         st.error("请至少选择一条产品线或输入关键词")
     else:
         with st.spinner(f"系统正向 {display_country_name} 发射深海探测器... 正无情粉碎所有上市集团、黄页、Vevor和修理厂..."):
-            leads = search_leads(final_keywords, config, st.session_state.excluded_domains, custom_excludes_list, target_num=5)
+            leads, api_blocked = search_leads(final_keywords, config, st.session_state.excluded_domains, custom_excludes_list, target_num=5)
+        
         if leads:
             st.session_state.all_leads.extend(leads)
             for l in leads: st.session_state.excluded_domains.add(urlparse(l['官网/主页']).netloc.lower())
@@ -426,7 +394,10 @@ if st.button(f"🔍 开启最严厉深挖 5 家 【{display_country_name}】 顶
             if len(leads) < 5:
                 st.warning(f"过滤机制极其严苛，大量不符目标的网站已被拦截抛弃，最终合规呈现 {len(leads)} 家。请再次点击继续。")
         else:
-            st.warning("极致苛刻的条件导致本次搜集全军覆没！所有 Vevor、五金店、修理厂和平台已被拦截。请直接再次点击搜索！")
+            if api_blocked:
+                st.error("🛑 警报：因搜索过于频繁，搜索引擎(DuckDuckGo)暂时限制了您的IP，未返回任何数据。请**等待 1-2 分钟后**再点击搜索！")
+            else:
+                st.warning("极致苛刻的条件导致本次搜集全军覆没！所有 Vevor、五金店、修理厂和平台已被代码成功拦截。请直接再次点击搜索！")
 
 # ==================== 结果显示 ====================
 if st.session_state.all_leads:
