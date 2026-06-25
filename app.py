@@ -74,7 +74,7 @@ class DatabaseManager:
             
         df.to_csv("db_clients.csv", mode='a', header=False, index=False)
 
-    # 【新增功能 1】：删除客户，同步清理 CRM 系统数据 (支持 GSheets 与本地)
+    # 【功能】：删除客户，同步清理 CRM 系统数据 (支持 GSheets 与本地)
     def delete_client(self, client_id):
         if self.use_gsheets:
             try:
@@ -92,7 +92,7 @@ class DatabaseManager:
                 df.to_csv("db_clients.csv", index=False)
             except: pass
 
-    # 【新增功能 2】：获取已入库的全部域名和网址，用于全网扫描时避免重复抓取
+    # 【功能】：获取已入库的全部域名和网址，用于全网扫描时避免重复抓取
     def get_existing_urls_and_domains(self):
         urls, domains = set(), set()
         try:
@@ -171,7 +171,7 @@ COUNTRY_CONFIG = {
     "🇪🇸 西班牙/南美大区": {"region": "es-es", "role_words": ["mayorista", "importador", "distribuidor", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
 }
 
-# 【新增功能 3】：扩展多阶发信模板，覆盖初次、2次跟进、3次跟进
+# 【功能】：扩展多阶发信模板，覆盖初次、2次跟进、3次跟进
 EMAIL_TEMPLATES = {
     "en": {
         "1. 首次触达 - 供应链降本 (Cost & Margin)": "Subject: Supply chain idea for {company_name}\n\nHi team at {company_name},\n\nI noticed you supply {core_product} and related tools to the local market.\n\nWith recent supply chain shifts, many independent distributors are facing margin squeezes from local middlemen. We help suppliers like you bypass the middleman and source directly, allowing for smaller, flexible trial orders without tying up your cash flow.\n\nWould you be open to a quick chat to see if this fits your upcoming inventory planning?\n\nBest regards,\n[Your Name]",
@@ -187,7 +187,7 @@ EMAIL_TEMPLATES = {
     }
 }
 
-# ==================== 发信引擎 ====================
+# ==================== 发信引擎 (智能自适应 SSL/TLS) ====================
 def send_smtp_email(to_addr, subject, body):
     if not st.session_state.get('smtp_user') or not st.session_state.get('smtp_pass'):
         return False, "⚠️ 错误: 请先在左侧边栏配置并保存 SMTP 邮箱账号和授权码！"
@@ -198,8 +198,17 @@ def send_smtp_email(to_addr, subject, body):
         msg['Subject'] = subject
         msg.attach(MIMEText(body + st.session_state.get('email_sign', ''), 'plain', 'utf-8'))
         
-        server = smtplib.SMTP(st.session_state['smtp_server'], st.session_state['smtp_port'])
-        server.starttls()
+        smtp_server = st.session_state['smtp_server']
+        smtp_port = int(st.session_state['smtp_port'])
+        
+        # 智能判断加密协议：994(网易企业邮) 和 465(QQ/阿里企业邮) 走纯 SSL 协议
+        if smtp_port in [465, 994]:
+            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+        else:
+            # 587(Gmail/Outlook) 等走 TLS 协议
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
+            
         server.login(st.session_state['smtp_user'], st.session_state['smtp_pass'])
         server.send_message(msg)
         server.quit()
@@ -296,7 +305,7 @@ if page == "🔍 获客与开发工作台":
         else:
             scored_leads = []
             
-            # 【新增功能 2】：抓取前，获取历史所有已被抓取过的网址和域名
+            # 【功能】：抓取前，获取历史所有已被抓取过的网址和域名
             db_existing_urls, db_existing_domains = db.get_existing_urls_and_domains()
             
             # 融合当前会话和历史数据库的排重黑名单
@@ -321,7 +330,7 @@ if page == "🔍 获客与开发工作台":
                         if len(scored_leads) >= 5: break
                         domain = urlparse(url).netloc.lower()
                         
-                        # 【新增功能 2】：核心去重逻辑生效点，不仅当前排重，还全量对比 CRM 历史记录
+                        # 【功能】：核心去重逻辑生效点，不仅当前排重，还全量对比 CRM 历史记录
                         if url in db_existing_urls or domain in seen: continue
                         if any(b in domain for b in PLATFORM_BLOCKLIST): continue
                         
@@ -392,7 +401,7 @@ if page == "🔍 获客与开发工作台":
             lead_url = lead['官网']
             lead_id = lead['客户ID']
             
-            # 【新增功能 1】：排版分列，增加“人工二次核对删除键”
+            # 【功能】：排版分列，增加“人工二次核对删除键”
             col_title, col_del = st.columns([5, 1])
             with col_title:
                 st.subheader(f"{i+1}. {lead['公司名']}")
@@ -407,7 +416,7 @@ if page == "🔍 获客与开发工作台":
             
             st.markdown(f"**官网**: [{lead_url}]({lead_url}) | **匹配产品**: `{lead['匹配产品']}`")
             
-            # 【新增功能 3】：发信历史展示
+            # 【功能】：发信历史展示
             history_count = 0
             if not emails_df.empty and lead['邮箱']:
                 history = emails_df[emails_df['收件人'] == lead['邮箱']]
@@ -430,7 +439,7 @@ if page == "🔍 获客与开发工作台":
             with st.expander("✉️ 展开开发信工作台 (撰写与发送)", expanded=True):
                 lang = "es" if "Mexico" in lead['国家'] or "西班牙" in lead['国家'] else "en"
                 
-                # 【新增功能 3】：基于联动的发信历史，智能推荐使用哪一套模板
+                # 【功能】：基于联动的发信历史，智能推荐使用哪一套模板
                 tpl_keys = list(EMAIL_TEMPLATES[lang].keys())
                 default_idx = 0 
                 if history_count == 1:
@@ -487,7 +496,7 @@ elif page == "🗃️ 客户 CRM 数据库":
             df = df[df['公司名'].str.contains(search_term, case=False) | df['国家'].str.contains(search_term, case=False)]
         st.dataframe(df, use_container_width=True)
         
-        # 【新增功能 1】：在数据库页面也提供手工强行删除接口
+        # 【功能】：在数据库页面也提供手工强行删除接口
         with st.expander("🗑️ 手动清理 CRM 中的无效客户"):
             del_id = st.text_input("请输入上方表格第一列对应的【客户ID】")
             if st.button("从数据库中彻底删除", type="primary"):
