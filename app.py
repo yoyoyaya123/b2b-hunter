@@ -19,6 +19,7 @@ from google.oauth2.service_account import Credentials
 st.set_page_config(page_title="JYTOOL 全球 B2B 自动化获客 CRM", layout="wide")
 
 # ==================== 数据库引擎 (Google Sheets / 本地回退) ====================
+# 如果没有配置 Google 密钥，系统会自动降级使用本地 CSV，保证程序不崩溃
 class DatabaseManager:
     def __init__(self):
         self.use_gsheets = False
@@ -61,7 +62,7 @@ class DatabaseManager:
             except: pass
         df.to_csv("db_clients.csv", mode='a', header=False, index=False)
 
-    # 需求1: 新增删除客户功能，同步 CRM 系统
+    # 【新增】需求1: 新增删除客户功能，同步清理 CRM 系统 (Google Sheets & 本地)
     def delete_client(self, client_id):
         if self.use_gsheets:
             try:
@@ -79,7 +80,7 @@ class DatabaseManager:
             df = df[df['客户ID'] != client_id]
             df.to_csv("db_clients.csv", index=False)
 
-    # 需求2: 获取已存在的域名和网址，用于全网去重
+    # 【新增】需求2: 获取已有域名和网址，用于全网扫描时避免重复
     def get_all_domains_and_urls(self):
         try:
             df = self.get_clients()
@@ -127,13 +128,17 @@ with st.sidebar:
             st.session_state.update({'smtp_server': smtp_server, 'smtp_port': smtp_port, 'smtp_user': smtp_user, 'smtp_pass': smtp_pass, 'email_sign': email_sign})
             st.success("SMTP配置已保存(仅当前会话有效)")
 
+    # 完整还原原版的 Gsheets 提示
+    if not db.use_gsheets:
+        st.warning("⚠️ 当前未连接 Google Sheets，数据暂存于云端临时区 (重启可能会丢失)。请查阅说明配置 GSheets。")
+
 # ==================== 底层数据与规则库 ====================
 PLATFORM_BLOCKLIST = ["directory.", "yellowpages.", "alibaba.", "amazon.", "ebay.", "aliexpress.", "vevor.", "news.", "blog."]
 CHINA_GEO_BLOCKLIST = ["guangdong", "shenzhen", "zhejiang", "ningbo", "china mainland"]
 STRICT_BUSINESS_BLOCKLIST = ["investor relations", "repair shop", "car wash", "taller mecánico", "автосервис"]
 BASE_EN_PRODUCTS = {"汽保工具": {"search": ["radiator pressure tester", "cylinder compression tester", "brake bleeder", "oil extractor", "a/c manifold gauge"]}}
 
-# 需求3: 扩充多款跟进邮件模板
+# 【修改】需求3: 扩充多款跟进邮件模板，用于联动跟进记录
 EMAIL_TEMPLATES = {
     "en": {
         "1.【首次联系】切入痛点(供应链/利润)": {"sub": "Supply chain idea for {company}", "body": "Hi team at {company},\n\nI noticed you supply {product} to the local market.\n\nWith recent supply chain shifts, many independent distributors are facing margin squeezes. We help suppliers bypass the middleman and source directly, allowing for flexible trial orders.\n\nWould you be open to a quick chat?"},
@@ -171,7 +176,7 @@ def search_and_score(query, target_num=3):
             for r in ddgs.text(f'{query} -amazon -aliexpress -vevor', max_results=15):
                 urls.append(r['href'])
         
-        # 需求2: 获取已有数据，进行多轮排除排重
+        # 【新增】获取 CRM 库中已有的数据，执行强排重
         existing_domains, existing_urls = db.get_all_domains_and_urls()
 
         results = []
@@ -179,7 +184,7 @@ def search_and_score(query, target_num=3):
             if len(results) >= target_num: break
             domain = urlparse(url).netloc.lower()
             
-            # 【核心去重逻辑】如果该域名或链接已经被搜刮过，直接跳过寻找下一家
+            # 需求2: 彻底排重，已获客过的域名/网址直接跳过
             if url in existing_urls or domain in existing_domains: continue
             if any(b in domain for b in PLATFORM_BLOCKLIST): continue
             
@@ -187,7 +192,9 @@ def search_and_score(query, target_num=3):
                 html = requests.get(url, timeout=5, headers={'User-Agent': 'Mozilla/5.0'}).text
                 text = BeautifulSoup(html, 'html.parser').get_text().lower()
                 
+                # 提取联系方式
                 emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
+                # 简单拦截 (原汁原味保留)
                 if any(x in text for x in CHINA_GEO_BLOCKLIST + STRICT_BUSINESS_BLOCKLIST): continue
                 
                 matched = [kw for kw in BASE_EN_PRODUCTS["汽保工具"]["search"] if kw.lower() in text]
@@ -216,36 +223,39 @@ if page == "🔍 获客与开发工作台":
     query = st.text_input("输入精准指令 (如: radiator tester distributor Australia)")
     
     if st.button("开始深挖探测", type="primary"):
-        with st.spinner("系统正在全网检索、执行强去重并验证..."):
+        with st.spinner("系统正在全网检索并验证 (已自动排除历史抓取数据)..."):
             leads = search_and_score(query)
             if leads:
-                # 为了防止重复追加，先清空或重置 session state
                 st.session_state['current_leads'] = leads
                 for l in leads: db.add_client(l) # 自动入库
-                st.success(f"斩获 {len(leads)} 家全新未触达合规客户，已自动存入 CRM 数据库！")
+                st.success(f"斩获 {len(leads)} 家合规客户，已自动存入 CRM 数据库！")
             else:
-                st.warning("本轮未找到匹配的新客户，可能已被抓取过，请更换关键词。")
+                st.warning("未找到匹配新客户（或本轮匹配的客户已被历史抓取过），请更换关键词。")
 
     if 'current_leads' in st.session_state:
         st.markdown("---")
-        # 使用 list 复制以确保能安全删除
-        for lead in list(st.session_state['current_leads']):
+        # 保留原有 enumerate，确保有数字标号
+        for i, lead in enumerate(list(st.session_state['current_leads'])):
             lead_id = lead['客户ID']
-            col_title, col_del = st.columns([4, 1])
+            col_title, col_del = st.columns([5, 1])
             with col_title:
-                st.subheader(f"🏢 {lead['公司名']}")
+                # 原汁原味恢复序号展示
+                st.subheader(f"{i+1}. {lead['公司名']}")
             with col_del:
-                # 需求1: 新增删除键功能
-                if st.button("🗑️ 删除此客户 (不匹配)", key=f"del_{lead_id}"):
+                # 需求1: 新增删除按钮，人工二次核对不匹配时一键剔除
+                if st.button("🗑️ 删除该客户 (不匹配)", key=f"del_{lead_id}"):
                     db.delete_client(lead_id)
                     st.session_state['current_leads'] = [l for l in st.session_state['current_leads'] if l['客户ID'] != lead_id]
                     st.success("已移除该客户并同步剔除 CRM！")
                     st.rerun() # 立即刷新界面
 
-            st.markdown(f"**🌐 官网**: [{lead['官网']}]({lead['官网']})")
-            st.info(f"🎯 **系统诊断 (为何推荐)**: 探测到该独立站源码包含汽车专用工具 `[{lead['匹配产品']}]`，符合对口 B2B 采购商特征。")
+            # 【修复展示板块】把底层数据表里的所有字段拉出来直观展示，防止隐藏在库里看不到
+            st.markdown(f"**🌐 官网**: [{lead['官网']}]({lead['官网']}) &nbsp; | &nbsp; **🌍 国家**: {lead['国家']} &nbsp; | &nbsp; **📞 联系方式**: `{lead['联系方式']}`")
             
-            # 需求3: 智能检索并展示发送追踪历史
+            # A) 匹配产品展示区 (原汁原味恢复文案)
+            st.info(f"🎯 **系统诊断 (为何推荐)**: 探测到该独立站源码及前端页面深度包含汽车专用工具 `[{lead['匹配产品']}]`，符合对口 B2B 采购商特征。")
+            
+            # 智能检索并展示发送追踪历史
             emails_df = db.get_emails()
             if lead['邮箱'] and not emails_df.empty:
                 history = emails_df[emails_df['收件人'] == lead['邮箱']]
@@ -257,34 +267,34 @@ if page == "🔍 获客与开发工作台":
             history_count = len(history)
             if history_count > 0:
                 last_time = history.iloc[-1]['发送时间']
-                st.warning(f"🕒 **联系记录**: 历史已开发过 **{history_count}** 次，上次发送时间：{last_time}")
+                st.warning(f"🕒 **联系追踪记录**: 历史已开发过 **{history_count}** 次，上次发送时间：{last_time}")
             else:
-                st.success("🆕 **联系记录**: 该客户尚未被联系过，属于全新线索。")
-            
+                st.success("🆕 **联系追踪记录**: 系统比对未发现联系记录，这是一条全新线索。")
+
             # B) 开发信编辑区
             with st.expander("✉️ 展开开发信工作台 (撰写与发送)", expanded=True):
-                # 需求3: 多款模板供选择 & 智能推荐跟进模板
+                # 需求3: 提供多款模板供选择 & 智能推荐对应的跟进模板
                 tpl_keys = list(EMAIL_TEMPLATES["en"].keys())
                 
-                # 自动根据联系次数推荐使用的模板(0次->模板1，1次->模板3，2次及以上->模板4)
+                # 根据历史发信次数，自动推荐使用哪一封开发信模板
                 default_idx = 0
                 if history_count == 1:
                     default_idx = 2
                 elif history_count >= 2:
                     default_idx = 3
 
-                selected_tpl = st.selectbox("📝 选择跟进邮件模板", tpl_keys, index=default_idx, key=f"tpl_sel_{lead_id}")
+                selected_tpl = st.selectbox("📝 选择营销邮件模板", tpl_keys, index=default_idx, key=f"tpl_sel_{lead_id}")
                 tpl = EMAIL_TEMPLATES["en"][selected_tpl]
                 
                 col_sub, col_to = st.columns([3, 1])
-                # 使用动态 key 让选择新模板时自动覆盖填充下方的文本框
+                # 动态 key，确保切换模板时文本框内容自动刷新
                 dyn_key_sub = f"sub_{lead_id}_{selected_tpl}"
                 dyn_key_body = f"body_{lead_id}_{selected_tpl}"
                 
                 with col_to:
                     target_email = st.text_input("收件人", value=lead['邮箱'], key=f"to_{lead_id}")
                 with col_sub:
-                    mail_sub = st.text_input("邮件主题", value=tpl["sub"].format(company=lead['公司名'], product=lead['匹配产品']), key=dyn_key_sub)
+                    mail_sub = st.text_input("邮件主题", value=tpl["sub"].format(company=lead['公司名']), key=dyn_key_sub)
                 
                 mail_body = st.text_area("邮件正文 (可自由编辑)", value=tpl["body"].format(company=lead['公司名'], product=lead['匹配产品']), height=200, key=dyn_key_body)
                 
@@ -300,7 +310,7 @@ if page == "🔍 获客与开发工作台":
                                 if success:
                                     st.success("✅ 邮件已成功发送！")
                                     db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": mail_body[:50]+"...", "状态": "成功"})
-                                    st.rerun() # 刷新状态，更新跟进次数显示
+                                    st.rerun() # 发送完自动刷新当前卡片的跟进记录
                                 else:
                                     st.error(msg)
                 with c2:
@@ -310,7 +320,7 @@ if page == "🔍 获客与开发工作台":
                     if st.button("🔖 仅标记为已联系", key=f"mark_{lead_id}"):
                         db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "(手动复制发送)", "状态": "手动标记发送"})
                         st.success("已记录到发送追踪历史！")
-                        st.rerun() # 刷新状态，更新跟进次数显示
+                        st.rerun() # 标记完自动刷新跟进记录
             st.markdown("---")
 
 # ==================== 页面 2: 客户 CRM 数据库 ====================
@@ -327,7 +337,7 @@ elif page == "🗃️ 客户 CRM 数据库":
             df = df[df['公司名'].str.contains(search_term, case=False) | df['国家'].str.contains(search_term, case=False)]
         st.dataframe(df, use_container_width=True)
         
-        # 提供在 CRM 后台中直接删除的工具
+        # 提供在 CRM 后台中直接删除的工具，和前面的核对同步
         with st.expander("🗑️ 手动清理无效数据"):
             del_id = st.text_input("输入要删除的【客户ID】(见表格第一列)")
             if st.button("确认从库中永久删除"):
