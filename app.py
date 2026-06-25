@@ -74,6 +74,38 @@ class DatabaseManager:
             
         df.to_csv("db_clients.csv", mode='a', header=False, index=False)
 
+    # 【新增功能 1】：删除客户，同步清理 CRM 系统数据 (支持 GSheets 与本地)
+    def delete_client(self, client_id):
+        if self.use_gsheets:
+            try:
+                worksheet = self.sheet.worksheet("Clients")
+                cell = worksheet.find(client_id)
+                if cell:
+                    worksheet.delete_rows(cell.row)
+                return
+            except Exception: pass
+        # 本地CSV回退操作
+        if os.path.exists("db_clients.csv"):
+            try:
+                df = pd.read_csv("db_clients.csv")
+                df = df[df['客户ID'] != client_id]
+                df.to_csv("db_clients.csv", index=False)
+            except: pass
+
+    # 【新增功能 2】：获取已入库的全部域名和网址，用于全网扫描时避免重复抓取
+    def get_existing_urls_and_domains(self):
+        urls, domains = set(), set()
+        try:
+            df = self.get_clients()
+            if not df.empty and '官网' in df.columns:
+                for u in df['官网'].dropna():
+                    u = str(u).strip()
+                    urls.add(u)
+                    if u.startswith('http'):
+                        domains.add(urlparse(u).netloc.lower())
+        except: pass
+        return urls, domains
+
     def get_emails(self):
         if self.use_gsheets:
             try:
@@ -139,14 +171,19 @@ COUNTRY_CONFIG = {
     "🇪🇸 西班牙/南美大区": {"region": "es-es", "role_words": ["mayorista", "importador", "distribuidor", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
 }
 
+# 【新增功能 3】：扩展多阶发信模板，覆盖初次、2次跟进、3次跟进
 EMAIL_TEMPLATES = {
     "en": {
-        "供应链降本切入 (Cost & Margin)": "Subject: Supply chain idea for {company_name}\n\nHi team at {company_name},\n\nI noticed you supply {core_product} and related tools to the local market.\n\nWith recent supply chain shifts, many independent distributors are facing margin squeezes from local middlemen. We help suppliers like you bypass the middleman and source directly, allowing for smaller, flexible trial orders without tying up your cash flow.\n\nWould you be open to a quick chat to see if this fits your upcoming inventory planning?\n\nBest regards,\n[Your Name]",
-        "测试试单切入 (Trial Order)": "Subject: Trial order support for {core_product}\n\nHi team at {company_name},\n\nI see you focus on {core_product} for the local auto repair market.\n\nTesting a new supplier can be risky. To help you lower the trial cost, we offer small MOQ test orders and pre-shipment video confirmations, ensuring you get exactly what your clients need without heavy upfront investment.\n\nAre you open to exploring a risk-free trial order this quarter?\n\nBest regards,\n[Your Name]"
+        "1. 首次触达 - 供应链降本 (Cost & Margin)": "Subject: Supply chain idea for {company_name}\n\nHi team at {company_name},\n\nI noticed you supply {core_product} and related tools to the local market.\n\nWith recent supply chain shifts, many independent distributors are facing margin squeezes from local middlemen. We help suppliers like you bypass the middleman and source directly, allowing for smaller, flexible trial orders without tying up your cash flow.\n\nWould you be open to a quick chat to see if this fits your upcoming inventory planning?\n\nBest regards,\n[Your Name]",
+        "2. 首次触达 - 测试试单 (Trial Order)": "Subject: Trial order support for {core_product}\n\nHi team at {company_name},\n\nI see you focus on {core_product} for the local auto repair market.\n\nTesting a new supplier can be risky. To help you lower the trial cost, we offer small MOQ test orders and pre-shipment video confirmations, ensuring you get exactly what your clients need without heavy upfront investment.\n\nAre you open to exploring a risk-free trial order this quarter?\n\nBest regards,\n[Your Name]",
+        "3. 第二次跟进 - 行业案例补充 (Follow-up 1)": "Subject: Following up on {core_product} sourcing\n\nHi team at {company_name},\n\nJust bubbling this up. I know you're busy, but I wanted to share a quick case study: we recently helped a similar distributor cut their sourcing costs by 15% on {core_product} without sacrificing quality.\n\nCould we find 5 minutes next week to see if this makes sense for you?\n\nBest regards,\n[Your Name]",
+        "4. 第三次跟进 - 寻找关键人 (Follow-up 2)": "Subject: Right person to speak with at {company_name}?\n\nHi,\n\nI’m trying to connect with the person in charge of purchasing {core_product}. Am I reaching out to the right contact?\n\nIf not, could you kindly point me in the right direction? \n\nIf this isn't a priority right now, I completely understand and won't reach out again. Best of luck with your business!\n\nBest regards,\n[Your Name]"
     },
     "es": {
-        "供应链降本切入 (Cost & Margin)": "Asunto: Idea de suministro para {company_name}\n\nHola equipo de {company_name},\n\nNoté que distribuyen {core_product} en su mercado local.\n\nMuchos distribuidores independientes enfrentan márgenes reducidos por los intermediarios. Ayudamos a importadores como ustedes a comprar directamente desde el origen, permitiendo pedidos de prueba pequeños y flexibles sin comprometer su flujo de caja.\n\n¿Estarían abiertos a una breve charla para ver si esto encaja en su planificación de inventario?\n\nSaludos cordiales,\n[Tu Nombre]",
-        "测试试单切入 (Trial Order)": "Asunto: Soporte de pedidos de prueba para {core_product}\n\nHola equipo de {company_name},\n\nVeo que se enfocan en {core_product}.\n\nProbar un nuevo proveedor puede ser riesgoso. Para reducir el costo de prueba, ofrecemos pequeños pedidos y confirmaciones por video antes del envío, asegurando que obtengan lo que necesitan sin una gran inversión inicial.\n\n¿Están abiertos a explorar un pedido de prueba sin riesgos este trimestre?\n\nSaludos cordiales,\n[Tu Nombre]"
+        "1. 首次触达 - 供应链降本 (Cost & Margin)": "Asunto: Idea de suministro para {company_name}\n\nHola equipo de {company_name},\n\nNoté que distribuyen {core_product} en su mercado local.\n\nMuchos distribuidores independientes enfrentan márgenes reducidos por los intermediarios. Ayudamos a importadores como ustedes a comprar directamente desde el origen, permitiendo pedidos de prueba pequeños y flexibles sin comprometer su flujo de caja.\n\n¿Estarían abiertos a una breve charla para ver si esto encaja en su planificación de inventario?\n\nSaludos cordiales,\n[Tu Nombre]",
+        "2. 首次触达 - 测试试单 (Trial Order)": "Asunto: Soporte de pedidos de prueba para {core_product}\n\nHola equipo de {company_name},\n\nVeo que se enfocan en {core_product}.\n\nProbar un nuevo proveedor puede ser riesgoso. Para reducir el costo de prueba, ofrecemos pequeños pedidos y confirmaciones por video antes del envío, asegurando que obtengan lo que necesitan sin una gran inversión inicial.\n\n¿Están abiertos a explorar un pedido de prueba sin riesgos este trimestre?\n\nSaludos cordiales,\n[Tu Nombre]",
+        "3. 第二次跟进 - 行业案例补充 (Follow-up 1)": "Asunto: Seguimiento sobre suministro de {core_product}\n\nHola equipo de {company_name},\n\nSé que están ocupados, pero quería compartir un caso rápido: recientemente ayudamos a un distribuidor similar a reducir sus costos en {core_product} un 15% sin sacrificar calidad.\n\n¿Podríamos hablar 5 minutos la próxima semana para ver si esto tiene sentido para ustedes?\n\nSaludos cordiales,\n[Tu Nombre]",
+        "4. 第三次跟进 - 寻找关键人 (Follow-up 2)": "Asunto: ¿Persona adecuada en {company_name}?\n\nHola,\n\nIntento conectarme con el responsable de compras de {core_product}. ¿Me comunico con el contacto correcto?\n\nSi no es así, ¿podría orientarme en la dirección correcta?\n\nSi esto no es prioridad ahora, lo entiendo y no volveré a insistir. ¡Éxito en sus negocios!\n\nSaludos cordiales,\n[Tu Nombre]"
     }
 }
 
@@ -258,7 +295,13 @@ if page == "🔍 获客与开发工作台":
             st.error("请先在左侧边栏选择产品线或输入关键词！")
         else:
             scored_leads = []
-            seen = st.session_state.excluded_domains.copy()
+            
+            # 【新增功能 2】：抓取前，获取历史所有已被抓取过的网址和域名
+            db_existing_urls, db_existing_domains = db.get_existing_urls_and_domains()
+            
+            # 融合当前会话和历史数据库的排重黑名单
+            seen = st.session_state.excluded_domains.copy() | db_existing_domains
+            
             queries = []
             search_suffix = config.get("search_suffix", "")
             for kw in final_keywords:
@@ -267,7 +310,7 @@ if page == "🔍 获客与开发工作台":
             random.shuffle(queries)
 
             progress_text = st.empty()
-            with st.spinner("系统发射深海探测器... 正无情粉碎所有上市集团、黄页、Vevor和修理厂..."):
+            with st.spinner("系统发射深海探测器... 正无情粉碎所有上市集团、黄页、Vevor和修理厂 (已自动排除历史已抓取数据)..."):
                 for q in queries:
                     if len(scored_leads) >= 5: break
                     progress_text.write(f"🔄 正在深挖: `{q}` (已验证合规 {len(scored_leads)}/5 家)...")
@@ -277,8 +320,10 @@ if page == "🔍 获客与开发工作台":
                     for url in urls:
                         if len(scored_leads) >= 5: break
                         domain = urlparse(url).netloc.lower()
+                        
+                        # 【新增功能 2】：核心去重逻辑生效点，不仅当前排重，还全量对比 CRM 历史记录
+                        if url in db_existing_urls or domain in seen: continue
                         if any(b in domain for b in PLATFORM_BLOCKLIST): continue
-                        if domain in seen: continue
                         
                         try:
                             html = requests.get(url, timeout=5, headers={'User-Agent': 'Mozilla/5.0'}).text
@@ -316,9 +361,9 @@ if page == "🔍 获客与开发工作台":
                 st.session_state.excluded_domains = seen
                 st.session_state.current_page = (len(st.session_state.all_leads) - 1) // 5
                 for l in scored_leads: db.add_client(l) # 同步写入 CRM 库，现已过滤 HTML 等乱码字段
-                st.success(f"🎉 斩获成功！精准验证 {len(scored_leads)} 家合规经销商，已存入 CRM 数据库！")
+                st.success(f"🎉 斩获成功！精准验证 {len(scored_leads)} 家全新未触达合规经销商，已存入 CRM 数据库！")
             else:
-                st.warning("过滤条件极其严苛，本次搜寻被全量拦截。请重新点击或放宽搜索范围！")
+                st.warning("本次搜寻未发现新线索（或符合条件的已被历史排重），请更换关键词/国家重试。")
 
     # ===== 结果渲染区域 =====
     if st.session_state.all_leads:
@@ -339,13 +384,40 @@ if page == "🔍 获客与开发工作台":
         start_idx = current_page * 5
         end_idx = min(start_idx + 5, total_leads)
         
+        # 预先获取发送记录，用于下方联动判断
+        emails_df = db.get_emails()
+        
         for i in range(start_idx, end_idx):
             lead = st.session_state.all_leads[i]
             lead_url = lead['官网']
+            lead_id = lead['客户ID']
             
-            st.subheader(f"{i+1}. {lead['公司名']}")
+            # 【新增功能 1】：排版分列，增加“人工二次核对删除键”
+            col_title, col_del = st.columns([5, 1])
+            with col_title:
+                st.subheader(f"{i+1}. {lead['公司名']}")
+            with col_del:
+                if st.button("🗑️ 移除此客户 (不匹配)", key=f"del_btn_{lead_id}"):
+                    db.delete_client(lead_id) # 同步 CRM 清理
+                    st.session_state.all_leads = [l for l in st.session_state.all_leads if l['客户ID'] != lead_id]
+                    # 分页保护：如果当前页被删空了，自动往前退一页
+                    if len(st.session_state.all_leads) > 0 and len(st.session_state.all_leads) <= st.session_state.current_page * 5:
+                        st.session_state.current_page = max(0, st.session_state.current_page - 1)
+                    st.rerun()
+            
             st.markdown(f"**官网**: [{lead_url}]({lead_url}) | **匹配产品**: `{lead['匹配产品']}`")
             
+            # 【新增功能 3】：发信历史展示
+            history_count = 0
+            if not emails_df.empty and lead['邮箱']:
+                history = emails_df[emails_df['收件人'] == lead['邮箱']]
+                history_count = len(history)
+                if history_count > 0:
+                    last_time = history.iloc[-1]['发送时间']
+                    st.warning(f"🕒 **联系追踪**: 已对该客户发送过 **{history_count}** 次邮件，上次跟进: {last_time}")
+                else:
+                    st.success("🆕 **联系追踪**: 暂无该客户的邮件沟通记录。")
+
             if lead_url not in st.session_state.local_reports:
                 if st.button(f"📊 生成 14维度背调档案", key=f"bg_btn_{i}"):
                     st.session_state.local_reports[lead_url] = local_background_check(lead, lead['国家'])
@@ -358,9 +430,17 @@ if page == "🔍 获客与开发工作台":
             with st.expander("✉️ 展开开发信工作台 (撰写与发送)", expanded=True):
                 lang = "es" if "Mexico" in lead['国家'] or "西班牙" in lead['国家'] else "en"
                 
+                # 【新增功能 3】：基于联动的发信历史，智能推荐使用哪一套模板
+                tpl_keys = list(EMAIL_TEMPLATES[lang].keys())
+                default_idx = 0 
+                if history_count == 1:
+                    default_idx = 2  # 推荐使用 Follow-up 1
+                elif history_count >= 2:
+                    default_idx = 3  # 推荐使用 Follow-up 2
+
                 col_angle, col_to = st.columns([2, 1])
                 with col_angle:
-                    angle = st.selectbox("1️⃣ 选择开发切入角度模板", list(EMAIL_TEMPLATES[lang].keys()), key=f"angle_{i}")
+                    angle = st.selectbox("1️⃣ 选择开发跟进模板", tpl_keys, index=default_idx, key=f"angle_{i}")
                 with col_to:
                     target_email = st.text_input("收件人", value=lead['邮箱'], key=f"to_{i}")
                 
@@ -369,8 +449,8 @@ if page == "🔍 获客与开发工作台":
                 default_sub = raw_body[0].replace("Subject: ", "").replace("Asunto: ", "").format(company_name=lead['公司名'], core_product=lead['匹配产品'])
                 default_body = raw_body[1].format(company_name=lead['公司名'], core_product=lead['匹配产品'])
                 
-                mail_sub = st.text_input("邮件主题", value=default_sub, key=f"sub_{i}")
-                mail_body = st.text_area("邮件正文 (可自由修改)", value=default_body, height=200, key=f"body_{i}")
+                mail_sub = st.text_input("邮件主题", value=default_sub, key=f"sub_{i}_{angle}")
+                mail_body = st.text_area("邮件正文 (可自由修改)", value=default_body, height=200, key=f"body_{i}_{angle}")
                 
                 c1, c2, c3 = st.columns(3)
                 with c1:
@@ -382,6 +462,7 @@ if page == "🔍 获客与开发工作台":
                                 if success:
                                     st.success("✅ 邮件发送成功！")
                                     db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": mail_body[:50]+"...", "状态": "成功"})
+                                    st.rerun() # 发送成功立刻刷新跟进次数显示
                                 else: st.error(msg)
                 with c2:
                     st.code(f"Subject: {mail_sub}\n\n{mail_body}", language="text")
@@ -389,6 +470,7 @@ if page == "🔍 获客与开发工作台":
                     if st.button("🔖 仅标记为已手动发送", key=f"mark_{i}"):
                         db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "(手动复制发送)", "状态": "手动标记"})
                         st.success("已记录到 CRM 追踪历史！")
+                        st.rerun() # 标记成功立刻刷新跟进次数显示
             st.markdown("---")
 
 # ==================== 页面 2: 客户 CRM 数据库 ====================
@@ -404,6 +486,16 @@ elif page == "🗃️ 客户 CRM 数据库":
         if search_term:
             df = df[df['公司名'].str.contains(search_term, case=False) | df['国家'].str.contains(search_term, case=False)]
         st.dataframe(df, use_container_width=True)
+        
+        # 【新增功能 1】：在数据库页面也提供手工强行删除接口
+        with st.expander("🗑️ 手动清理 CRM 中的无效客户"):
+            del_id = st.text_input("请输入上方表格第一列对应的【客户ID】")
+            if st.button("从数据库中彻底删除", type="primary"):
+                if del_id:
+                    db.delete_client(del_id.strip())
+                    st.success(f"客户 {del_id} 已成功删除。")
+                    time.sleep(1)
+                    st.rerun()
     else:
         st.info("数据库目前为空，请先前往获客工作台抓取。")
 
@@ -424,6 +516,8 @@ elif page == "📨 发送追踪记录":
     df_logs = db.get_emails()
     
     if not df_logs.empty:
+        # 按时间倒序，最新的发送在最上面
+        df_logs = df_logs.sort_values(by="发送时间", ascending=False)
         st.dataframe(df_logs, use_container_width=True)
         csv = df_logs.to_csv(index=False).encode('utf-8-sig')
         st.download_button("📥 导出发送记录为 CSV", data=csv, file_name="JYTOOL_Email_Logs.csv", mime="text/csv")
