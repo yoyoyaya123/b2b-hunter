@@ -62,38 +62,6 @@ class DatabaseManager:
             except: pass
         df.to_csv("db_clients.csv", mode='a', header=False, index=False)
 
-    # 【新增需求1】：删除客户，同步清理 CRM 系统 (支持 Google Sheets & 本地 CSV)
-    def delete_client(self, client_id):
-        if self.use_gsheets:
-            try:
-                worksheet = self.sheet.worksheet("Clients")
-                cell = worksheet.find(client_id)
-                if cell:
-                    worksheet.delete_rows(cell.row)
-                return
-            except Exception as e:
-                pass
-        # 本地CSV回退操作
-        if os.path.exists("db_clients.csv"):
-            df = pd.read_csv("db_clients.csv")
-            df = df[df['客户ID'] != client_id]
-            df.to_csv("db_clients.csv", index=False)
-
-    # 【新增需求2】：获取已入库的全部域名和网址，用于全网扫描时避免重复抓取
-    def get_existing_urls_and_domains(self):
-        urls = set()
-        domains = set()
-        try:
-            df = self.get_clients()
-            if not df.empty and '官网' in df.columns:
-                for u in df['官网'].dropna():
-                    u = str(u).strip()
-                    urls.add(u)
-                    if u.startswith('http'):
-                        domains.add(urlparse(u).netloc.lower())
-        except: pass
-        return urls, domains
-
     def get_emails(self):
         if self.use_gsheets:
             try:
@@ -140,13 +108,10 @@ CHINA_GEO_BLOCKLIST = ["guangdong", "shenzhen", "zhejiang", "ningbo", "china mai
 STRICT_BUSINESS_BLOCKLIST = ["investor relations", "repair shop", "car wash", "taller mecánico", "автосервис"]
 BASE_EN_PRODUCTS = {"汽保工具": {"search": ["radiator pressure tester", "cylinder compression tester", "brake bleeder", "oil extractor", "a/c manifold gauge"]}}
 
-# 【新增需求3】：在原版基础上，扩充了“跟进信”模板。保留了原本的两个模板，增加第二次和第三次跟进模板。
 EMAIL_TEMPLATES = {
     "en": {
-        "Cost & Margin (首次触达)": {"sub": "Supply chain idea for {company}", "body": "Hi team at {company},\n\nI noticed you supply {product} to the local market.\n\nWith recent supply chain shifts, many independent distributors are facing margin squeezes. We help suppliers bypass the middleman and source directly, allowing for flexible trial orders.\n\nWould you be open to a quick chat?"},
-        "Trial Order (首次触达)": {"sub": "Trial order support for {product}", "body": "Hi team at {company},\n\nTesting a new supplier can be risky. To help you lower the trial cost for {product}, we offer small MOQ test orders and pre-shipment video confirmations.\n\nAre you open to exploring a risk-free trial order this quarter?"},
-        "Follow-up 1 (第2次跟进)": {"sub": "Following up on {product} sourcing", "body": "Hi team at {company},\n\nJust bubbling this up. I know you're busy, but I wanted to share a quick case study: we recently helped a similar distributor cut their sourcing costs by 15% on {product} without sacrificing quality.\n\nCould we find 5 minutes next week to see if this makes sense for you?"},
-        "Follow-up 2 (第3次跟进)": {"sub": "Right person to speak with at {company}?", "body": "Hi,\n\nI’m trying to connect with the person in charge of purchasing {product}. Am I reaching out to the right contact?\n\nIf not, could you kindly point me in the right direction? \n\nIf this isn't a priority right now, I completely understand and won't reach out again. Best of luck with your business!"}
+        "Cost & Margin": {"sub": "Supply chain idea for {company}", "body": "Hi team at {company},\n\nI noticed you supply {product} to the local market.\n\nWith recent supply chain shifts, many independent distributors are facing margin squeezes. We help suppliers bypass the middleman and source directly, allowing for flexible trial orders.\n\nWould you be open to a quick chat?"},
+        "Trial Order": {"sub": "Trial order support for {product}", "body": "Hi team at {company},\n\nTesting a new supplier can be risky. To help you lower the trial cost for {product}, we offer small MOQ test orders and pre-shipment video confirmations.\n\nAre you open to exploring a risk-free trial order this quarter?"}
     }
 }
 
@@ -178,18 +143,11 @@ def search_and_score(query, target_num=3):
             for r in ddgs.text(f'{query} -amazon -aliexpress -vevor', max_results=15):
                 urls.append(r['href'])
         
-        # 【修改点2】：获取库中已有的域名和网址，准备排重
-        existing_urls, existing_domains = db.get_existing_urls_and_domains()
-        
         results = []
         for url in urls:
             if len(results) >= target_num: break
             domain = urlparse(url).netloc.lower()
-            
-            # 【核心去重逻辑】：已抓取过的域名/URL，直接跳过！
-            if url in existing_urls or domain in existing_domains: continue
             if any(b in domain for b in PLATFORM_BLOCKLIST): continue
-            
             try:
                 html = requests.get(url, timeout=5, headers={'User-Agent': 'Mozilla/5.0'}).text
                 text = BeautifulSoup(html, 'html.parser').get_text().lower()
@@ -225,76 +183,40 @@ if page == "🔍 获客与开发工作台":
     query = st.text_input("输入精准指令 (如: radiator tester distributor Australia)")
     
     if st.button("开始深挖探测", type="primary"):
-        with st.spinner("系统正在全网检索并验证 (已自动排除历史已抓取数据)..."):
+        with st.spinner("系统正在全网检索并验证..."):
             leads = search_and_score(query)
             if leads:
                 st.session_state['current_leads'] = leads
                 for l in leads: db.add_client(l) # 自动入库
                 st.success(f"斩获 {len(leads)} 家合规客户，已自动存入 CRM 数据库！")
             else:
-                st.warning("未找到匹配客户 (或者该批次客户在上一轮已被抓取去重了)，请更换关键词。")
+                st.warning("未找到匹配客户，请更换关键词。")
 
     if 'current_leads' in st.session_state:
         st.markdown("---")
-        # 复制 list 防止在迭代中删除元素引发报错
-        for i, lead in enumerate(list(st.session_state['current_leads'])):
-            
-            # 【新增需求1】：将标题和“删除键”并排显示，方便人工二次核对后剔除不匹配客户
-            col_title, col_del = st.columns([5, 1])
-            with col_title:
-                st.subheader(f"{i+1}. {lead['公司名']}")
-            with col_del:
-                if st.button("🗑️ 删除此客户(不匹配)", key=f"del_{lead['客户ID']}"):
-                    db.delete_client(lead['客户ID'])
-                    st.session_state['current_leads'] = [l for l in st.session_state['current_leads'] if l['客户ID'] != lead['客户ID']]
-                    st.rerun() # 刷新界面，客户消失
-            
-            # 【完整还原并增强板块】：你提到的“国家”、“联系方式”全部直观展示出来
-            st.markdown(f"**🌐 官网**: [{lead['官网']}]({lead['官网']}) &nbsp;&nbsp;|&nbsp;&nbsp; **🌍 国家**: {lead['国家']} &nbsp;&nbsp;|&nbsp;&nbsp; **📞 联系方式**: `{lead['联系方式']}`")
+        for i, lead in enumerate(st.session_state['current_leads']):
+            st.subheader(f"{i+1}. {lead['公司名']}")
+            st.markdown(f"**🌐 官网**: [{lead['官网']}]({lead['官网']})")
             
             # A) 匹配产品展示区
             st.info(f"🎯 **系统诊断 (为何推荐)**: 探测到该独立站源码及前端页面深度包含汽车专用工具 `[{lead['匹配产品']}]`，符合对口 B2B 采购商特征。")
             
-            # 【新增需求3】：读取该客户的发信历史并展现
-            emails_df = db.get_emails()
-            history_count = 0
-            if not emails_df.empty and lead['邮箱']:
-                history = emails_df[emails_df['收件人'] == lead['邮箱']]
-                history_count = len(history)
-                if history_count > 0:
-                    last_time = history.iloc[-1]['发送时间']
-                    st.warning(f"🕒 **发信记录**: 系统检测到您已对该邮箱跟进过 **{history_count}** 次，上次发送时间: {last_time}")
-                else:
-                    st.success("🆕 **发信记录**: 暂无联系记录，属于全新线索。")
-
             # B) 开发信编辑区
             with st.expander("✉️ 展开开发信工作台 (撰写与发送)", expanded=True):
-                # 动态模板选择下拉框
-                tpl_names = list(EMAIL_TEMPLATES["en"].keys())
-                
-                # 智能根据历史联系次数推荐模板
-                default_idx = 0 
-                if history_count == 1:
-                    default_idx = 2  # 推荐使用 Follow-up 1
-                elif history_count >= 2:
-                    default_idx = 3  # 推荐使用 Follow-up 2
-
-                selected_tpl_name = st.selectbox("📝 请选择邮件模板", tpl_names, index=default_idx, key=f"tpl_{lead['客户ID']}")
-                tpl = EMAIL_TEMPLATES["en"][selected_tpl_name]
-                
                 col_sub, col_to = st.columns([3, 1])
+                tpl = EMAIL_TEMPLATES["en"]["Cost & Margin"]
                 
                 with col_to:
-                    target_email = st.text_input("收件人", value=lead['邮箱'], key=f"to_{lead['客户ID']}")
+                    target_email = st.text_input("收件人", value=lead['邮箱'], key=f"to_{i}")
                 with col_sub:
-                    mail_sub = st.text_input("邮件主题", value=tpl["sub"].format(company=lead['公司名'], product=lead['匹配产品']), key=f"sub_{lead['客户ID']}_{selected_tpl_name}")
+                    mail_sub = st.text_input("邮件主题", value=tpl["sub"].format(company=lead['公司名']), key=f"sub_{i}")
                 
-                mail_body = st.text_area("邮件正文 (可自由编辑)", value=tpl["body"].format(company=lead['公司名'], product=lead['匹配产品']), height=200, key=f"body_{lead['客户ID']}_{selected_tpl_name}")
+                mail_body = st.text_area("邮件正文 (可自由编辑)", value=tpl["body"].format(company=lead['公司名'], product=lead['匹配产品']), height=200, key=f"body_{i}")
                 
                 # C) 操作按钮组
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    if st.button("🚀 立即 SMTP 发送", key=f"send_{lead['客户ID']}", type="primary"):
+                    if st.button("🚀 立即 SMTP 发送", key=f"send_{i}", type="primary"):
                         if not target_email:
                             st.error("请输入收件人邮箱")
                         else:
@@ -303,7 +225,6 @@ if page == "🔍 获客与开发工作台":
                                 if success:
                                     st.success("✅ 邮件已成功发送！")
                                     db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": mail_body[:50]+"...", "状态": "成功"})
-                                    st.rerun() # 记录成功后刷新显示跟进次数
                                 else:
                                     st.error(msg)
                 with c2:
@@ -311,10 +232,9 @@ if page == "🔍 获客与开发工作台":
                     st.code(f"Subject: {mail_sub}\n\n{mail_body}", language="text")
                     st.caption("☝️ 悬浮在框右上角点击一键复制")
                 with c3:
-                    if st.button("🔖 仅标记为已联系", key=f"mark_{lead['客户ID']}"):
+                    if st.button("🔖 仅标记为已联系", key=f"mark_{i}"):
                         db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "(手动复制发送)", "状态": "手动标记发送"})
                         st.success("已记录到发送追踪历史！")
-                        st.rerun() # 记录后刷新显示跟进次数
             st.markdown("---")
 
 # ==================== 页面 2: 客户 CRM 数据库 ====================
@@ -330,16 +250,6 @@ elif page == "🗃️ 客户 CRM 数据库":
         if search_term:
             df = df[df['公司名'].str.contains(search_term, case=False) | df['国家'].str.contains(search_term, case=False)]
         st.dataframe(df, use_container_width=True)
-        
-        # 【新增需求1】：不仅在工作台可以删，在这里也可以直接清理数据库里的冗余废弃客户
-        with st.expander("🗑️ 手动清理 CRM 中的无效客户"):
-            del_id = st.text_input("请输入上方表格第一列对应的【客户ID】")
-            if st.button("从数据库中彻底删除", type="primary"):
-                if del_id:
-                    db.delete_client(del_id.strip())
-                    st.success(f"客户 {del_id} 已成功删除。")
-                    time.sleep(1)
-                    st.rerun()
     else:
         st.info("数据库目前为空，请先前往获客工作台抓取。")
 
