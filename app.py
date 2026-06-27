@@ -18,7 +18,7 @@ from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="JYTOOL 全球 B2B 精准获客与 CRM 系统", layout="wide")
 
-# ==================== 数据库引擎 (修复了CSV解析崩溃与脏数据污染) ====================
+# ==================== 数据库引擎 (增强云端永久化存储) ====================
 class DatabaseManager:
     def __init__(self):
         self.use_gsheets = False
@@ -29,21 +29,32 @@ class DatabaseManager:
         self._init_connection()
 
     def _init_connection(self):
+        # 尝试连接云端 Google 表格（数据永久保存）
         if "gcp_service_account" in st.secrets and "gsheets_url" in st.secrets:
             try:
                 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
                 creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
                 self.client = gspread.authorize(creds)
                 self.sheet = self.client.open_by_url(st.secrets["gsheets_url"])
+                
+                # 自动检查并创建所需的子表，防止空表报错
+                worksheets = [ws.title for ws in self.sheet.worksheets()]
+                if "Clients" not in worksheets:
+                    self.sheet.add_worksheet(title="Clients", rows="1000", cols="20").append_row(self.client_cols)
+                if "Emails" not in worksheets:
+                    self.sheet.add_worksheet(title="Emails", rows="1000", cols="20").append_row(self.email_cols)
+                    
                 self.use_gsheets = True
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"云端数据库连接失败，原因: {e}")
+                self.use_gsheets = False
         
-        # 初始化本地文件，如果不存在则创建
-        if not os.path.exists("db_clients.csv"):
-            pd.DataFrame(columns=self.client_cols).to_csv("db_clients.csv", index=False)
-        if not os.path.exists("db_emails.csv"):
-            pd.DataFrame(columns=self.email_cols).to_csv("db_emails.csv", index=False)
+        # 本地降级：如果云端没配置好，初始化本地文件
+        if not self.use_gsheets:
+            if not os.path.exists("db_clients.csv"):
+                pd.DataFrame(columns=self.client_cols).to_csv("db_clients.csv", index=False)
+            if not os.path.exists("db_emails.csv"):
+                pd.DataFrame(columns=self.email_cols).to_csv("db_emails.csv", index=False)
 
     def get_clients(self):
         if self.use_gsheets:
@@ -61,7 +72,7 @@ class DatabaseManager:
             return df
 
     def add_client(self, client_data):
-        # 强制清洗：只取规定的列，抛弃 HTML源码 等会破坏 CSV 格式的字段
+        # 强制清洗：只取规定的列，抛弃 HTML源码 等会破坏格式的字段
         clean_data = {k: client_data.get(k, "") for k in self.client_cols}
         df = pd.DataFrame([clean_data])
         
@@ -219,6 +230,14 @@ def send_smtp_email(to_addr, subject, body):
 # ==================== 侧边栏导航与配置 ====================
 with st.sidebar:
     st.header("🧭 系统导航")
+    
+    # === 数据库状态指示灯 ===
+    if db.use_gsheets:
+        st.success("✅ 云数据库已连接 (记录永久保存)")
+    else:
+        st.error("⚠️ 警告：当前使用云端临时缓存。网页刷新或休眠后【数据将丢失】！请参考文档配置 GSheets 密钥。")
+    st.markdown("---")
+    
     page = st.radio("请选择功能模块:", ["🔍 获客与开发工作台", "🗃️ 客户 CRM 数据库", "📨 发送追踪记录"])
     
     st.markdown("---")
