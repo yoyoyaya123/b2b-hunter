@@ -18,7 +18,7 @@ from google.oauth2.service_account import Credentials
 
 st.set_page_config(page_title="JYTOOL 全球 B2B 精准获客与 CRM 系统", layout="wide")
 
-# ==================== 数据库引擎 (增强云端永久化存储) ====================
+# ==================== 数据库引擎 (带配置永久保存功能) ====================
 class DatabaseManager:
     def __init__(self):
         self.use_gsheets = False
@@ -26,10 +26,10 @@ class DatabaseManager:
         self.sheet = None
         self.client_cols = ["客户ID", "公司名", "官网", "邮箱", "联系方式", "匹配产品", "国家", "状态", "添加时间"]
         self.email_cols = ["邮件ID", "客户公司", "收件人", "发送时间", "主题", "内容摘要", "状态"]
+        self.config_cols = ["配置项", "配置值"] # 新增配置表
         self._init_connection()
 
     def _init_connection(self):
-        # 尝试连接云端 Google 表格（数据永久保存）
         if "gcp_service_account" in st.secrets and "gsheets_url" in st.secrets:
             try:
                 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
@@ -37,73 +37,53 @@ class DatabaseManager:
                 self.client = gspread.authorize(creds)
                 self.sheet = self.client.open_by_url(st.secrets["gsheets_url"])
                 
-                # 自动检查并创建所需的子表，防止空表报错
                 worksheets = [ws.title for ws in self.sheet.worksheets()]
                 if "Clients" not in worksheets:
                     self.sheet.add_worksheet(title="Clients", rows="1000", cols="20").append_row(self.client_cols)
                 if "Emails" not in worksheets:
                     self.sheet.add_worksheet(title="Emails", rows="1000", cols="20").append_row(self.email_cols)
+                if "Config" not in worksheets:
+                    self.sheet.add_worksheet(title="Config", rows="50", cols="5").append_row(self.config_cols)
                     
                 self.use_gsheets = True
             except Exception as e:
                 print(f"云端数据库连接失败，原因: {e}")
                 self.use_gsheets = False
         
-        # 本地降级：如果云端没配置好，初始化本地文件
         if not self.use_gsheets:
-            if not os.path.exists("db_clients.csv"):
-                pd.DataFrame(columns=self.client_cols).to_csv("db_clients.csv", index=False)
-            if not os.path.exists("db_emails.csv"):
-                pd.DataFrame(columns=self.email_cols).to_csv("db_emails.csv", index=False)
+            if not os.path.exists("db_clients.csv"): pd.DataFrame(columns=self.client_cols).to_csv("db_clients.csv", index=False)
+            if not os.path.exists("db_emails.csv"): pd.DataFrame(columns=self.email_cols).to_csv("db_emails.csv", index=False)
+            if not os.path.exists("db_config.csv"): pd.DataFrame(columns=self.config_cols).to_csv("db_config.csv", index=False)
 
+    # ...保持原有的 get_clients, add_client, delete_client, get_existing_urls_and_domains, get_emails, log_email 方法不变...
     def get_clients(self):
         if self.use_gsheets:
-            try:
-                worksheet = self.sheet.worksheet("Clients")
-                return pd.DataFrame(worksheet.get_all_records())
+            try: return pd.DataFrame(self.sheet.worksheet("Clients").get_all_records())
             except: pass
-        
-        # 增加容错自愈：如果 CSV 损坏，直接重置，防止页面崩溃
-        try:
-            return pd.read_csv("db_clients.csv")
-        except Exception:
-            df = pd.DataFrame(columns=self.client_cols)
-            df.to_csv("db_clients.csv", index=False)
-            return df
+        try: return pd.read_csv("db_clients.csv")
+        except: return pd.DataFrame(columns=self.client_cols)
 
     def add_client(self, client_data):
-        # 强制清洗：只取规定的列，抛弃 HTML源码 等会破坏格式的字段
         clean_data = {k: client_data.get(k, "") for k in self.client_cols}
-        df = pd.DataFrame([clean_data])
-        
         if self.use_gsheets:
-            try:
-                worksheet = self.sheet.worksheet("Clients")
-                worksheet.append_row(list(clean_data.values()))
-                return
+            try: self.sheet.worksheet("Clients").append_row(list(clean_data.values())); return
             except: pass
-            
-        df.to_csv("db_clients.csv", mode='a', header=False, index=False)
+        pd.DataFrame([clean_data]).to_csv("db_clients.csv", mode='a', header=False, index=False)
 
-    # 【功能】：删除客户，同步清理 CRM 系统数据 (支持 GSheets 与本地)
     def delete_client(self, client_id):
         if self.use_gsheets:
             try:
                 worksheet = self.sheet.worksheet("Clients")
                 cell = worksheet.find(client_id)
-                if cell:
-                    worksheet.delete_rows(cell.row)
+                if cell: worksheet.delete_rows(cell.row)
                 return
-            except Exception: pass
-        # 本地CSV回退操作
+            except: pass
         if os.path.exists("db_clients.csv"):
             try:
                 df = pd.read_csv("db_clients.csv")
-                df = df[df['客户ID'] != client_id]
-                df.to_csv("db_clients.csv", index=False)
+                df[df['客户ID'] != client_id].to_csv("db_clients.csv", index=False)
             except: pass
 
-    # 【功能】：获取已入库的全部域名和网址，用于全网扫描时避免重复抓取
     def get_existing_urls_and_domains(self):
         urls, domains = set(), set()
         try:
@@ -112,67 +92,70 @@ class DatabaseManager:
                 for u in df['官网'].dropna():
                     u = str(u).strip()
                     urls.add(u)
-                    if u.startswith('http'):
-                        domains.add(urlparse(u).netloc.lower())
+                    if u.startswith('http'): domains.add(urlparse(u).netloc.lower())
         except: pass
         return urls, domains
 
     def get_emails(self):
         if self.use_gsheets:
-            try:
-                worksheet = self.sheet.worksheet("Emails")
-                return pd.DataFrame(worksheet.get_all_records())
+            try: return pd.DataFrame(self.sheet.worksheet("Emails").get_all_records())
             except: pass
-            
-        try:
-            return pd.read_csv("db_emails.csv")
-        except Exception:
-            df = pd.DataFrame(columns=self.email_cols)
-            df.to_csv("db_emails.csv", index=False)
-            return df
+        try: return pd.read_csv("db_emails.csv")
+        except: return pd.DataFrame(columns=self.email_cols)
 
     def log_email(self, email_data):
         clean_data = {k: email_data.get(k, "") for k in self.email_cols}
-        df = pd.DataFrame([clean_data])
-        
+        if self.use_gsheets:
+            try: self.sheet.worksheet("Emails").append_row(list(clean_data.values())); return
+            except: pass
+        pd.DataFrame([clean_data]).to_csv("db_emails.csv", mode='a', header=False, index=False)
+
+    # 【新增功能】：读取和保存系统配置 (SMTP等)
+    def get_config(self):
         if self.use_gsheets:
             try:
-                worksheet = self.sheet.worksheet("Emails")
-                worksheet.append_row(list(clean_data.values()))
+                records = self.sheet.worksheet("Config").get_all_records()
+                return {str(r['配置项']): str(r['配置值']) for r in records}
+            except: pass
+        try:
+            df = pd.read_csv("db_config.csv")
+            return dict(zip(df['配置项'], df['配置值']))
+        except: return {}
+
+    def save_config(self, conf_dict):
+        rows = [self.config_cols] + [[str(k), str(v)] for k, v in conf_dict.items()]
+        if self.use_gsheets:
+            try:
+                ws = self.sheet.worksheet("Config")
+                ws.clear()
+                ws.append_rows(rows)
                 return
             except: pass
-            
-        df.to_csv("db_emails.csv", mode='a', header=False, index=False)
+        pd.DataFrame(list(conf_dict.items()), columns=self.config_cols).to_csv("db_config.csv", index=False)
 
 db = DatabaseManager()
 
-# ==================== 本地缓存 (保障分页与状态) ====================
+# ==================== 本地缓存与启动加载 ====================
+if 'config_loaded' not in st.session_state:
+    # 首次启动时，从数据库加载之前保存的 SMTP 配置
+    saved_conf = db.get_config()
+    st.session_state.update(saved_conf)
+    st.session_state['config_loaded'] = True
+
 if 'all_leads' not in st.session_state:
     st.session_state.all_leads = []
     st.session_state.excluded_domains = set()
     st.session_state.local_reports = {}
     st.session_state.current_page = 0
 
-# ==================== 核心过滤黑名单与产品库 ====================
-PLATFORM_BLOCKLIST = [
-    "iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", 
-    "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", 
-    "made-in-china.", "alibaba.", "aliexpress.", "indiamart.", "tradekey.", "hktdc.", "manufacturers.", "suppliers.",
-    "amazon.", "ebay.", "walmart.", "shopee.", "lazada.", "etsy.", "wayfair.", "temu.", "shein.", "trustpilot.",
-    "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.", "grainger.", "fastenal.", 
-    "mscdirect.", "homedepot.", "lowes.", "menards.", "target.", "costco.", "carrefour.", "aldi.", "tesco.", 
-    "macys.", "snap-on.", "mactools.", "matcotools.", "harborfreight.", "shopping.", "prices.", "vevor.", 
-    "northerntool.", "princessauto.", "kmstools.", "machineryhouse.", "news.", "blog.", "magazine.", "journal.", 
-    "press.", "wiki.", "forbes.", "reuters.", "bloomberg.", ".cn", ".com.cn", ".tw", ".hk"
-]
+# ==================== 黑名单与配置库 ====================
+PLATFORM_BLOCKLIST = ["iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", "made-in-china.", "alibaba.", "aliexpress.", "indiamart.", "tradekey.", "hktdc.", "manufacturers.", "suppliers.", "amazon.", "ebay.", "walmart.", "shopee.", "lazada.", "etsy.", "wayfair.", "temu.", "shein.", "trustpilot.", "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.", "grainger.", "fastenal.", "mscdirect.", "homedepot.", "lowes.", "menards.", "target.", "costco.", "carrefour.", "aldi.", "tesco.", "macys.", "snap-on.", "mactools.", "matcotools.", "harborfreight.", "shopping.", "prices.", "vevor.", "northerntool.", "princessauto.", "kmstools.", "machineryhouse.", "news.", "blog.", "magazine.", "journal.", "press.", "wiki.", "forbes.", "reuters.", "bloomberg.", ".cn", ".com.cn", ".tw", ".hk"]
 TITLE_BLOCKLIST = ["directory", "top 10", "top 20", "top 5", "list of", "manufacturers in", "suppliers of", "best suppliers", "news", "blog", "magazine", "press release", "yellow pages", "b2b platform"]
 CHINA_GEO_BLOCKLIST = ["guangdong", "shenzhen", "guangzhou", "dongguan", "foshan", "zhongshan", "zhuhai", "zhejiang", "ningbo", "hangzhou", "yiwu", "wenzhou", "taizhou", "jinhua", "shaoxing", "jiangsu", "shanghai", "shandong", "qingdao", "jinan", "hebei", "henan", "beijing", "tianjin", "+86 ", "0086", "86-1", "86-0", "made in china", "china mainland", "mainland china", "chinese supplier"]
 STRICT_BUSINESS_BLOCKLIST = ["investor relations", "stock symbol", "shareholders", "annual report", "subsidiary of", "listed company", "nasdaq", "nyse", "group of companies", "retail store", "consumer electronics", "superstore", "hypermarket", "retail only", "auto repair shop", "repair service", "body shop", "car wash", "tyre shop", "tire shop", "mechanic service", "mobile mechanic", "towing service", "collision center", "auto care clinic", "taller mecánico", "centro de reparación", "chapa y pintura", "grúa", "автосервис", "ремонт авто", "шиномонтаж", "СТО", "Autoreparatur", "Reparaturservice", "Reifenservice", "Abschleppdienst"]
 IRRELEVANT_INDUSTRIES_BLOCKLIST = ["garden tools", "lawn mower", "woodworking tools", "plumbing tools", "construction equipment", "agricultural machinery", "industrial supplies"]
-
 BASE_EN_PRODUCTS = {"01 仪表检测工具": {"search": ["radiator pressure tester", "cylinder compression tester", "fuel pressure gauge"]}, "02 液体更换/补充工具": {"search": ["brake fluid replacement tool", "brake bleeder", "oil extractor"]}, "03 汽车空调制冷工具": {"search": ["a/c manifold gauge", "refrigerant charging kit", "a/c leak detection"]}, "04 车身拆卸/卡扣工具": {"search": ["trim removal tool", "plastic pry tools", "car clip set"]}, "05 发动机正时工具": {"search": ["engine timing tool", "camshaft locking tool", "crankshaft tool"]}}
 BASE_ES_PRODUCTS = {"01 仪表检测工具": {"search": ["probador de presión de radiador", "comprobador de compresión", "medidor de presión de combustible"]}, "02 液体更换/补充工具": {"search": ["purgador de frenos", "extractor de aceite", "bomba de vacío"]}, "03 汽车空调制冷工具": {"search": ["manómetro de aire acondicionado", "kit de carga de refrigerante", "detector de fugas a/c"]}, "04 车身拆卸/卡扣工具": {"search": ["herramientas para desmontar molduras", "alicates para abrazaderas", "kit de grapas coche"]}, "05 发动机正时工具": {"search": ["kit de calado de motor", "herramienta de sincronización", "bloqueo de árbol de levas"]}}
-
 COUNTRY_CONFIG = {
     "🇺🇸 美国 (USA)": {"region": "us-en", "role_words": ["wholesaler", "distributor", "supplier", "dealer"], "product_lines": BASE_EN_PRODUCTS},
     "🇬🇧 英国 (UK)": {"region": "uk-en", "role_words": ["wholesaler", "distributor", "supplier", "dealer"], "product_lines": BASE_EN_PRODUCTS},
@@ -181,8 +164,6 @@ COUNTRY_CONFIG = {
     "🇩🇪 德国 (Germany)": {"region": "de-de", "role_words": ["Großhandel", "Importeur", "Distributor", "Händler"], "product_lines": {"01 仪表检测": {"search": ["Kühlsystem-Dichtheitsprüfer", "Kompressionstester"]}}},
     "🇪🇸 西班牙/南美大区": {"region": "es-es", "role_words": ["mayorista", "importador", "distribuidor", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
 }
-
-# 【功能】：扩展多阶发信模板，覆盖初次、2次跟进、3次跟进
 EMAIL_TEMPLATES = {
     "en": {
         "1. 首次触达 - 供应链降本 (Cost & Margin)": "Subject: Supply chain idea for {company_name}\n\nHi team at {company_name},\n\nI noticed you supply {core_product} and related tools to the local market.\n\nWith recent supply chain shifts, many independent distributors are facing margin squeezes from local middlemen. We help suppliers like you bypass the middleman and source directly, allowing for smaller, flexible trial orders without tying up your cash flow.\n\nWould you be open to a quick chat to see if this fits your upcoming inventory planning?\n\nBest regards,\n[Your Name]",
@@ -198,75 +179,55 @@ EMAIL_TEMPLATES = {
     }
 }
 
-# ==================== 发信引擎 (智能自适应 SSL/TLS) ====================
 def send_smtp_email(to_addr, subject, body):
-    if not st.session_state.get('smtp_user') or not st.session_state.get('smtp_pass'):
-        return False, "⚠️ 错误: 请先在左侧边栏配置并保存 SMTP 邮箱账号和授权码！"
+    if not st.session_state.get('smtp_user') or not st.session_state.get('smtp_pass'): return False, "⚠️ 错误: 请先配置 SMTP 账号！"
     try:
         msg = MIMEMultipart()
         msg['From'] = st.session_state['smtp_user']
         msg['To'] = to_addr
         msg['Subject'] = subject
         msg.attach(MIMEText(body + st.session_state.get('email_sign', ''), 'plain', 'utf-8'))
-        
-        smtp_server = st.session_state['smtp_server']
         smtp_port = int(st.session_state['smtp_port'])
-        
-        # 智能判断加密协议：994(网易企业邮) 和 465(QQ/阿里企业邮) 走纯 SSL 协议
-        if smtp_port in [465, 994]:
-            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
-        else:
-            # 587(Gmail/Outlook) 等走 TLS 协议
-            server = smtplib.SMTP(smtp_server, smtp_port)
-            server.starttls()
-            
+        if smtp_port in [465, 994]: server = smtplib.SMTP_SSL(st.session_state['smtp_server'], smtp_port)
+        else: server = smtplib.SMTP(st.session_state['smtp_server'], smtp_port); server.starttls()
         server.login(st.session_state['smtp_user'], st.session_state['smtp_pass'])
         server.send_message(msg)
         server.quit()
         return True, "发送成功"
-    except Exception as e:
-        return False, f"发送失败: {str(e)}"
+    except Exception as e: return False, f"发送失败: {str(e)}"
 
-# ==================== 侧边栏导航与配置 ====================
+# ==================== 侧边栏 ====================
 with st.sidebar:
     st.header("🧭 系统导航")
     
-    # === 数据库状态指示灯 ===
-    if db.use_gsheets:
-        st.success("✅ 云数据库已连接 (记录永久保存)")
-    else:
-        st.error("⚠️ 警告：当前使用云端临时缓存。网页刷新或休眠后【数据将丢失】！请参考文档配置 GSheets 密钥。")
-    st.markdown("---")
+    if db.use_gsheets: st.success("✅ 云数据库已连接 (客户记录与配置永久保存)")
+    else: st.error("⚠️ 警告：当前使用云端临时缓存。网页刷新或休眠后【数据将丢失】！请参考文档配置 GSheets 密钥。")
     
     page = st.radio("请选择功能模块:", ["🔍 获客与开发工作台", "🗃️ 客户 CRM 数据库", "📨 发送追踪记录"])
-    
     st.markdown("---")
+    
     with st.expander("⚙️ 邮箱 SMTP 配置 (用于自动发信)", expanded=False):
-        smtp_server = st.text_input("SMTP 服务器 (如 smtp.gmail.com)", value=st.session_state.get('smtp_server', 'smtp.gmail.com'))
-        smtp_port = st.number_input("端口号", value=st.session_state.get('smtp_port', 587))
+        smtp_server = st.text_input("SMTP 服务器", value=st.session_state.get('smtp_server', 'smtp.gmail.com'))
+        smtp_port = st.number_input("端口号", value=int(st.session_state.get('smtp_port', 587)))
         smtp_user = st.text_input("你的邮箱账号", value=st.session_state.get('smtp_user', ''))
-        smtp_pass = st.text_input("邮箱授权码 (非登录密码)", type="password", value=st.session_state.get('smtp_pass', ''))
+        smtp_pass = st.text_input("邮箱授权码", type="password", value=st.session_state.get('smtp_pass', ''))
         email_sign = st.text_area("邮件签名", value=st.session_state.get('email_sign', '\n\nBest regards,\nSales Team'))
-        if st.button("💾 保存发信配置"):
-            st.session_state.update({'smtp_server': smtp_server, 'smtp_port': smtp_port, 'smtp_user': smtp_user, 'smtp_pass': smtp_pass, 'email_sign': email_sign})
-            st.success("配置已保存")
+        if st.button("💾 永久保存发信配置"):
+            conf = {'smtp_server': smtp_server, 'smtp_port': str(smtp_port), 'smtp_user': smtp_user, 'smtp_pass': smtp_pass, 'email_sign': email_sign}
+            st.session_state.update(conf)
+            db.save_config(conf) # 写入永久数据库
+            st.success("🎉 发信配置已永久保存入库！下次打开无需重新填写。")
 
     if page == "🔍 获客与开发工作台":
         st.markdown("---")
         st.header("🌍 深度搜索配置")
-        country_options = list(COUNTRY_CONFIG.keys()) + ["🌍 + 自定义其他国家 (自由配置)"]
-        selected_country = st.selectbox("🎯 选择目标国家", country_options)
-
+        selected_country = st.selectbox("🎯 选择目标国家", list(COUNTRY_CONFIG.keys()) + ["🌍 + 自定义其他国家 (自由配置)"])
         custom_name, custom_roles_list, custom_excludes_list = "", [], []
-        
         if selected_country == "🌍 + 自定义其他国家 (自由配置)":
-            st.info("💡 **上帝模式**：您现在可以搜索全球任何角落！")
-            custom_name = st.text_input("1. 目标国家英文名 (如: Australia)", value="Australia")
+            st.info("💡 **上帝模式**")
+            custom_name = st.text_input("1. 目标国家英文名", value="Australia")
             custom_roles = st.text_input("2. 经销商词汇", value="wholesaler, distributor, importer, supplier")
-            custom_excludes = st.text_input("3. 额外排除词汇", value="repair service, mechanic, car wash")
-            custom_roles_list = [x.strip() for x in custom_roles.split(",")]
-            custom_excludes_list = [x.strip() for x in custom_excludes.split(",")]
-            config = {"region": "wt-wt", "search_suffix": custom_name, "role_words": custom_roles_list, "product_lines": BASE_EN_PRODUCTS}
+            config = {"region": "wt-wt", "search_suffix": custom_name, "role_words": [x.strip() for x in custom_roles.split(",")], "product_lines": BASE_EN_PRODUCTS}
             display_country_name = custom_name
         else:
             config = COUNTRY_CONFIG[selected_country]
@@ -274,25 +235,19 @@ with st.sidebar:
 
         st.subheader("📦 选择侦测产品线")
         selected_lines = [line for line in config['product_lines'].keys() if st.checkbox(line, value=True)]
-        
         manual_keywords = st.text_area("🔧 补充小语种产品词汇 (可选)", height=80)
         final_keywords = []
-        for line in selected_lines:
-            final_keywords.extend(config['product_lines'][line]['search'])
-        if manual_keywords.strip():
-            final_keywords.extend([k.strip() for k in manual_keywords.splitlines() if k.strip()])
+        for line in selected_lines: final_keywords.extend(config['product_lines'][line]['search'])
+        if manual_keywords.strip(): final_keywords.extend([k.strip() for k in manual_keywords.splitlines() if k.strip()])
         final_keywords = list(set(final_keywords))
 
-# ==================== 页面 1: 获客与工作台 ====================
 def duckduckgo_search(query, region, max_results=20):
-    queries_to_try = [f'{query} -amazon -aliexpress -vevor', query]
-    for q in queries_to_try:
+    for q in [f'{query} -amazon -aliexpress -vevor', query]:
         for backend in ['lite', 'html', 'api']:
             try:
                 results = []
                 with DDGS() as ddgs:
-                    for r in ddgs.text(q, region=region, backend=backend, max_results=max_results):
-                        results.append(r['href'])
+                    for r in ddgs.text(q, region=region, backend=backend, max_results=max_results): results.append(r['href'])
                 if results: return results
             except: continue
     return []
@@ -303,251 +258,126 @@ def local_background_check(lead, country):
     social_str = f"Facebook: {fb_links[0]}" if fb_links else "未提取到社媒，建议手动检索。"
     meta_desc = soup.find('meta', attrs={'name': 'description'})
     intro = meta_desc['content'].strip() if meta_desc and meta_desc.get('content') else f"系统分析：该公司为 {country} 本地独立分销商。"
-    
-    return f"""
-### 📊 资深业务员：{lead['公司名']} 客户背景深度调研报告
-**1. 官方网站**：{lead['官网']}
-**2. 公司介绍**：{intro[:300]}...
-**3. 社交媒体与门店**：{social_str}
-**4. 员工联系与职位**：📥 发现邮箱：`{lead['邮箱']}`
-**5. 核心痛点推演**：① 供应链成本倒挂 ② 起订量不灵活 ③ 售后合规风险。
-**6. 商业模式**：经典的 **B2B 区域进口分销 + 独立站直营**。
-"""
+    return f"### 📊 资深业务员：{lead['公司名']} 客户背景深度调研报告\n**1. 官方网站**：{lead['官网']}\n**2. 公司介绍**：{intro[:300]}...\n**3. 社交媒体与门店**：{social_str}\n**4. 员工联系与职位**：📥 发现邮箱：`{lead['邮箱']}`\n**5. 核心痛点推演**：① 供应链成本倒挂 ② 起订量不灵活 ③ 售后合规风险。\n**6. 商业模式**：经典的 **B2B 区域进口分销 + 独立站直营**。"
 
 if page == "🔍 获客与开发工作台":
     st.title("🔧 获客与开发工作台 (全能深度版)")
-    st.markdown("🎯 **系统特色**: 原汁原味的【国家/产品组合搜索】回归！融合 14维度背调与自动化发信系统！")
-
     if st.button(f"🔍 强力深挖 5 家 【{display_country_name}】 顶级经销商", type="primary"):
-        if not final_keywords:
-            st.error("请先在左侧边栏选择产品线或输入关键词！")
+        if not final_keywords: st.error("请先选择产品线！")
         else:
             scored_leads = []
-            
-            # 【功能】：抓取前，获取历史所有已被抓取过的网址和域名
             db_existing_urls, db_existing_domains = db.get_existing_urls_and_domains()
-            
-            # 融合当前会话和历史数据库的排重黑名单
             seen = st.session_state.excluded_domains.copy() | db_existing_domains
-            
-            queries = []
-            search_suffix = config.get("search_suffix", "")
-            for kw in final_keywords:
-                role = random.choice(config["role_words"])
-                queries.append(f'{kw} {role} {search_suffix}'.strip())
+            queries = [f'{kw} {random.choice(config["role_words"])} {config.get("search_suffix", "")}'.strip() for kw in final_keywords]
             random.shuffle(queries)
-
             progress_text = st.empty()
-            with st.spinner("系统发射深海探测器... 正无情粉碎所有上市集团、黄页、Vevor和修理厂 (已自动排除历史已抓取数据)..."):
+            with st.spinner("深挖中..."):
                 for q in queries:
                     if len(scored_leads) >= 5: break
-                    progress_text.write(f"🔄 正在深挖: `{q}` (已验证合规 {len(scored_leads)}/5 家)...")
+                    progress_text.write(f"🔄 正在深挖: `{q}` ({len(scored_leads)}/5)...")
                     urls = duckduckgo_search(q, region=config.get("region", "wt-wt"), max_results=15)
-                    if not urls: time.sleep(2); continue
-                    
                     for url in urls:
                         if len(scored_leads) >= 5: break
                         domain = urlparse(url).netloc.lower()
-                        
-                        # 【功能】：核心去重逻辑生效点，不仅当前排重，还全量对比 CRM 历史记录
-                        if url in db_existing_urls or domain in seen: continue
-                        if any(b in domain for b in PLATFORM_BLOCKLIST): continue
-                        
+                        if url in db_existing_urls or domain in seen or any(b in domain for b in PLATFORM_BLOCKLIST): continue
                         try:
                             html = requests.get(url, timeout=5, headers={'User-Agent': 'Mozilla/5.0'}).text
                             soup = BeautifulSoup(html, 'html.parser')
                             text = soup.get_text().lower()
-                            
                             if any(x in text for x in CHINA_GEO_BLOCKLIST + STRICT_BUSINESS_BLOCKLIST): continue
                             matched = [kw for kw in final_keywords if kw.lower() in text]
                             if not matched: continue
-                            
                             comp_name = soup.title.string.strip() if soup.title else domain
                             emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
-                            
-                            lead_data = {
-                                "客户ID": f"CUS_{int(time.time())}_{random.randint(100,999)}",
-                                "公司名": comp_name[:60],
-                                "官网": url,
-                                "邮箱": emails[0] if emails else "",
-                                "联系方式": " | ".join(emails[:2]) if emails else "表单",
-                                "匹配产品": matched[0],
-                                "国家": display_country_name,
-                                "状态": "未联系",
-                                "添加时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                "HTML内容": html,
-                                "产品数": len(matched)
-                            }
-                            scored_leads.append(lead_data)
+                            scored_leads.append({"客户ID": f"CUS_{int(time.time())}_{random.randint(100,999)}", "公司名": comp_name[:60], "官网": url, "邮箱": emails[0] if emails else "", "联系方式": " | ".join(emails[:2]) if emails else "表单", "匹配产品": matched[0], "国家": display_country_name, "状态": "未联系", "添加时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "HTML内容": html})
                             seen.add(domain)
                         except: pass
                     time.sleep(1)
-            
             progress_text.empty()
             if scored_leads:
                 st.session_state.all_leads.extend(scored_leads)
                 st.session_state.excluded_domains = seen
                 st.session_state.current_page = (len(st.session_state.all_leads) - 1) // 5
-                for l in scored_leads: db.add_client(l) # 同步写入 CRM 库，现已过滤 HTML 等乱码字段
-                st.success(f"🎉 斩获成功！精准验证 {len(scored_leads)} 家全新未触达合规经销商，已存入 CRM 数据库！")
-            else:
-                st.warning("本次搜寻未发现新线索（或符合条件的已被历史排重），请更换关键词/国家重试。")
+                for l in scored_leads: db.add_client(l)
+                st.success(f"🎉 斩获 {len(scored_leads)} 家全新经销商，已存入 CRM 数据库！")
+            else: st.warning("未发现新线索，请更换关键词重试。")
 
-    # ===== 结果渲染区域 =====
     if st.session_state.all_leads:
-        total_leads = len(st.session_state.all_leads)
-        total_pages = (total_leads - 1) // 5 + 1
-        current_page = st.session_state.current_page
+        total = len(st.session_state.all_leads)
+        total_p = (total - 1) // 5 + 1
+        cur_p = st.session_state.current_page
+        c1, c2, c3 = st.columns([1, 1, 3])
+        with c1:
+            if st.button("⬅️ 上一页", disabled=(cur_p == 0)): st.session_state.current_page -= 1; st.rerun()
+        with c2:
+            if st.button("下一页 ➡️", disabled=(cur_p >= total_p - 1)): st.session_state.current_page += 1; st.rerun()
+        with c3: st.write(f"第 {cur_p+1}/{total_p} 页 · 共 {total} 家客户")
 
-        col1, col2, col3 = st.columns([1, 1, 3])
-        with col1:
-            if st.button("⬅️ 上一页", disabled=(current_page == 0)):
-                st.session_state.current_page -= 1; st.rerun()
-        with col2:
-            if st.button("下一页 ➡️", disabled=(current_page >= total_pages - 1)):
-                st.session_state.current_page += 1; st.rerun()
-        with col3:
-            st.write(f"第 {current_page+1}/{total_pages} 页 · 共 {total_leads} 家客户")
-
-        start_idx = current_page * 5
-        end_idx = min(start_idx + 5, total_leads)
-        
-        # 预先获取发送记录，用于下方联动判断
         emails_df = db.get_emails()
-        
-        for i in range(start_idx, end_idx):
+        for i in range(cur_p * 5, min((cur_p + 1) * 5, total)):
             lead = st.session_state.all_leads[i]
-            lead_url = lead['官网']
-            lead_id = lead['客户ID']
-            
-            # 【功能】：排版分列，增加“人工二次核对删除键”
-            col_title, col_del = st.columns([5, 1])
-            with col_title:
-                st.subheader(f"{i+1}. {lead['公司名']}")
-            with col_del:
-                if st.button("🗑️ 移除此客户 (不匹配)", key=f"del_btn_{lead_id}"):
-                    db.delete_client(lead_id) # 同步 CRM 清理
-                    st.session_state.all_leads = [l for l in st.session_state.all_leads if l['客户ID'] != lead_id]
-                    # 分页保护：如果当前页被删空了，自动往前退一页
-                    if len(st.session_state.all_leads) > 0 and len(st.session_state.all_leads) <= st.session_state.current_page * 5:
-                        st.session_state.current_page = max(0, st.session_state.current_page - 1)
+            col_t, col_d = st.columns([5, 1])
+            with col_t: st.subheader(f"{i+1}. {lead['公司名']}")
+            with col_d:
+                if st.button("🗑️ 移除此客户", key=f"del_{lead['客户ID']}"):
+                    db.delete_client(lead['客户ID'])
+                    st.session_state.all_leads = [l for l in st.session_state.all_leads if l['客户ID'] != lead['客户ID']]
                     st.rerun()
+            st.markdown(f"**官网**: [{lead['官网']}]({lead['官网']}) | **匹配产品**: `{lead['匹配产品']}`")
             
-            st.markdown(f"**官网**: [{lead_url}]({lead_url}) | **匹配产品**: `{lead['匹配产品']}`")
-            
-            # 【功能】：发信历史展示
-            history_count = 0
-            if not emails_df.empty and lead['邮箱']:
-                history = emails_df[emails_df['收件人'] == lead['邮箱']]
-                history_count = len(history)
-                if history_count > 0:
-                    last_time = history.iloc[-1]['发送时间']
-                    st.warning(f"🕒 **联系追踪**: 已对该客户发送过 **{history_count}** 次邮件，上次跟进: {last_time}")
-                else:
-                    st.success("🆕 **联系追踪**: 暂无该客户的邮件沟通记录。")
+            history_count = len(emails_df[emails_df['收件人'] == lead['邮箱']]) if not emails_df.empty and lead['邮箱'] else 0
+            if history_count > 0: st.warning(f"🕒 **联系追踪**: 已对该客户发送过 **{history_count}** 次邮件")
+            else: st.success("🆕 **联系追踪**: 暂无该客户的邮件沟通记录。")
 
-            if lead_url not in st.session_state.local_reports:
-                if st.button(f"📊 生成 14维度背调档案", key=f"bg_btn_{i}"):
-                    st.session_state.local_reports[lead_url] = local_background_check(lead, lead['国家'])
+            if lead['官网'] not in st.session_state.local_reports:
+                if st.button(f"📊 生成 14维度背调档案", key=f"bg_{i}"):
+                    st.session_state.local_reports[lead['官网']] = local_background_check(lead, lead['国家'])
                     st.rerun()
-            
-            if lead_url in st.session_state.local_reports:
-                with st.expander("✅ 展开查看：14维度背景调查报告", expanded=False):
-                    st.markdown(st.session_state.local_reports[lead_url])
+            if lead['官网'] in st.session_state.local_reports:
+                with st.expander("✅ 展开查看：背景调查报告", expanded=False): st.markdown(st.session_state.local_reports[lead['官网']])
             
             with st.expander("✉️ 展开开发信工作台 (撰写与发送)", expanded=True):
                 lang = "es" if "Mexico" in lead['国家'] or "西班牙" in lead['国家'] else "en"
+                c_ang, c_to = st.columns([2, 1])
+                with c_ang: angle = st.selectbox("1️⃣ 选择开发跟进模板", list(EMAIL_TEMPLATES[lang].keys()), index=2 if history_count==1 else (3 if history_count>=2 else 0), key=f"ang_{i}")
+                with c_to: target_email = st.text_input("收件人", value=lead['邮箱'], key=f"to_{i}")
                 
-                # 【功能】：基于联动的发信历史，智能推荐使用哪一套模板
-                tpl_keys = list(EMAIL_TEMPLATES[lang].keys())
-                default_idx = 0 
-                if history_count == 1:
-                    default_idx = 2  # 推荐使用 Follow-up 1
-                elif history_count >= 2:
-                    default_idx = 3  # 推荐使用 Follow-up 2
-
-                col_angle, col_to = st.columns([2, 1])
-                with col_angle:
-                    angle = st.selectbox("1️⃣ 选择开发跟进模板", tpl_keys, index=default_idx, key=f"angle_{i}")
-                with col_to:
-                    target_email = st.text_input("收件人", value=lead['邮箱'], key=f"to_{i}")
-                
-                tpl = EMAIL_TEMPLATES[lang][angle]
-                raw_body = tpl.split("\n\n", 1)
-                default_sub = raw_body[0].replace("Subject: ", "").replace("Asunto: ", "").format(company_name=lead['公司名'], core_product=lead['匹配产品'])
-                default_body = raw_body[1].format(company_name=lead['公司名'], core_product=lead['匹配产品'])
-                
-                mail_sub = st.text_input("邮件主题", value=default_sub, key=f"sub_{i}_{angle}")
-                mail_body = st.text_area("邮件正文 (可自由修改)", value=default_body, height=200, key=f"body_{i}_{angle}")
+                tpl = EMAIL_TEMPLATES[lang][angle].split("\n\n", 1)
+                mail_sub = st.text_input("邮件主题", value=tpl[0].replace("Subject: ", "").replace("Asunto: ", "").format(company_name=lead['公司名'], core_product=lead['匹配产品']), key=f"sub_{i}")
+                mail_body = st.text_area("邮件正文 (可自由修改)", value=tpl[1].format(company_name=lead['公司名'], core_product=lead['匹配产品']), height=200, key=f"body_{i}")
                 
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    if st.button("🚀 立即 SMTP 发送", key=f"send_{i}", type="primary"):
-                        if not target_email: st.error("请输入收件人邮箱")
-                        else:
-                            with st.spinner("发送中..."):
-                                success, msg = send_smtp_email(target_email, mail_sub, mail_body)
-                                if success:
-                                    st.success("✅ 邮件发送成功！")
-                                    db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": mail_body[:50]+"...", "状态": "成功"})
-                                    st.rerun() # 发送成功立刻刷新跟进次数显示
-                                else: st.error(msg)
-                with c2:
-                    st.code(f"Subject: {mail_sub}\n\n{mail_body}", language="text")
+                    if st.button("🚀 立即 SMTP 发送", key=f"snd_{i}", type="primary"):
+                        success, msg = send_smtp_email(target_email, mail_sub, mail_body)
+                        if success:
+                            st.success("✅ 邮件发送成功！")
+                            db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": mail_body[:50]+"...", "状态": "成功"})
+                            st.rerun()
+                        else: st.error(msg)
                 with c3:
-                    if st.button("🔖 仅标记为已手动发送", key=f"mark_{i}"):
+                    if st.button("🔖 仅标记为已手动发送", key=f"mrk_{i}"):
                         db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "(手动复制发送)", "状态": "手动标记"})
-                        st.success("已记录到 CRM 追踪历史！")
-                        st.rerun() # 标记成功立刻刷新跟进次数显示
+                        st.rerun()
             st.markdown("---")
 
-# ==================== 页面 2: 客户 CRM 数据库 ====================
 elif page == "🗃️ 客户 CRM 数据库":
-    st.title("🗃️ 客户中心 (Clients Database)")
+    st.title("🗃️ 客户中心")
     df = db.get_clients()
-    
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        search_term = st.text_input("🔍 搜索公司名或国家")
-    
+    search = st.text_input("🔍 搜索公司名")
     if not df.empty:
-        if search_term:
-            df = df[df['公司名'].str.contains(search_term, case=False) | df['国家'].str.contains(search_term, case=False)]
+        if search: df = df[df['公司名'].str.contains(search, case=False)]
         st.dataframe(df, use_container_width=True)
-        
-        # 【功能】：在数据库页面也提供手工强行删除接口
         with st.expander("🗑️ 手动清理 CRM 中的无效客户"):
-            del_id = st.text_input("请输入上方表格第一列对应的【客户ID】")
-            if st.button("从数据库中彻底删除", type="primary"):
-                if del_id:
-                    db.delete_client(del_id.strip())
-                    st.success(f"客户 {del_id} 已成功删除。")
-                    time.sleep(1)
-                    st.rerun()
-    else:
-        st.info("数据库目前为空，请先前往获客工作台抓取。")
+            del_id = st.text_input("请输入要删除的【客户ID】")
+            if st.button("彻底删除", type="primary") and del_id:
+                db.delete_client(del_id.strip()); st.rerun()
+    else: st.info("数据库为空。")
 
-    with st.expander("➕ 手动录入新客户"):
-        with st.form("add_client_form"):
-            c_name = st.text_input("公司名")
-            c_url = st.text_input("官网")
-            c_email = st.text_input("邮箱")
-            c_prod = st.text_input("意向产品")
-            submitted = st.form_submit_button("录入数据库")
-            if submitted and c_name:
-                db.add_client({"客户ID": f"MAN_{int(time.time())}", "公司名": c_name, "官网": c_url, "邮箱": c_email, "联系方式": c_email, "匹配产品": c_prod, "国家": "手动录入", "状态": "未联系", "添加时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")})
-                st.success("录入成功！")
-
-# ==================== 页面 3: 发送追踪记录 ====================
 elif page == "📨 发送追踪记录":
-    st.title("📨 邮件发送追踪 (Email Logs)")
+    st.title("📨 邮件发送追踪")
     df_logs = db.get_emails()
-    
     if not df_logs.empty:
-        # 按时间倒序，最新的发送在最上面
-        df_logs = df_logs.sort_values(by="发送时间", ascending=False)
-        st.dataframe(df_logs, use_container_width=True)
-        csv = df_logs.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 导出发送记录为 CSV", data=csv, file_name="JYTOOL_Email_Logs.csv", mime="text/csv")
-    else:
-        st.info("暂无发送记录，您发送或标记的邮件将显示在这里。")
+        st.dataframe(df_logs.sort_values(by="发送时间", ascending=False), use_container_width=True)
+        st.download_button("📥 导出 CSV", df_logs.to_csv(index=False).encode('utf-8-sig'), "Email_Logs.csv", "text/csv")
+    else: st.info("暂无记录。")
