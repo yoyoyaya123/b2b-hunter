@@ -16,6 +16,7 @@ from ddgs import DDGS
 import gspread
 from google.oauth2.service_account import Credentials
 
+# 设置页面
 st.set_page_config(page_title="JYTOOL 全球 B2B 精准获客与 CRM 系统", layout="wide")
 
 # ==================== 数据库引擎 (带配置永久保存功能) ====================
@@ -169,7 +170,7 @@ IRRELEVANT_INDUSTRIES_BLOCKLIST = [
 # 强制包含词 (B2B正向验证，必须包含以下其一才算批发商)
 B2B_REQUIRED_KEYWORDS = ["wholesale", "distributor", "dealer", "trade account", "become a dealer", "b2b", "mayorista", "distribuidor", "importador", "trade strictly", "stockist"]
 
-# 优化后的精准产品词（去除了撬棒和正时，增加了 specialty / kit 属性）
+# 优化后的精准产品词（去除了终端修车工常用词，增加了 specialty / kit B2B采购属性）
 BASE_EN_PRODUCTS = {
     "01 仪表与诊断系统": {"search": ["automotive diagnostic specialty tools", "radiator pressure tester kit", "cylinder compression tester gauge"]}, 
     "02 液体更换/制动工具": {"search": ["pneumatic brake fluid bleeder kit", "automotive oil extractor tool", "brake caliper wind back specialty tool"]}, 
@@ -190,19 +191,25 @@ COUNTRY_CONFIG = {
     "🇪🇸 西班牙/南美大区": {"region": "es-es", "role_words": ["mayorista", "importador", "distribuidor", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
 }
 
-# 高转化率邮件模板 (PAS模型)
+# ==================== 顶尖销冠高转化率邮件模板 (极简冷邮件风) ====================
 EMAIL_TEMPLATES = {
     "en": {
-        "1. 强力破冰 - 避开中间商 (Direct Sourcing)": "Subject: Quick question about your {core_product} supply chain\n\nHi team at {company_name},\n\nI’ve been following your growth as an independent tool distributor. \n\nI know local margins are getting tighter due to domestic wholesalers adding their markups. We manufacture {core_product} and supply directly to regional distributors like you, allowing you to bypass the middlemen and instantly improve your margins by 20%.\n\nWe don't require massive MOQs to start. Would you be open to a quick video call next week so I can show you our production line and send a risk-free sample?\n\nBest regards,\n[Your Name]",
-        "2. 痛点切入 - 品控与售后 (Quality & Returns)": "Subject: Reducing warranty claims on {core_product}\n\nHi team at {company_name},\n\nMany auto tool distributors complain about high return rates and poor after-sales support from general hardware suppliers.\n\nSince we strictly specialize in automotive diagnostic & maintenance tools (like {core_product}), every batch undergoes rigorous vehicle-match testing. This translates to near-zero return rates for your trade accounts.\n\nCould we arrange a small trial order (even just 1-2 cartons) this month so your mechanics can test the build quality firsthand?\n\nBest regards,\n[Your Name]",
-        "3. 第二次跟进 - 视频验厂与背书 (Trust Building)": "Subject: Video: How we test {core_product} before shipping\n\nHi team,\n\nI didn't hear back, so I thought a visual might help. \n\nI recorded a short 30-second video of how our QA team tests the {core_product} before it ships out to our overseas distributors. (Insert Link: YouTube/Drive)\n\nWe take quality seriously because we only do B2B. If you have 5 minutes this week, I'd love to discuss how our specialty tool lineup can complement your current catalog.\n\nBest regards,\n[Your Name]",
-        "4. 终极试探 - 寻找采购决策人 (The Breakup)": "Subject: Appropriate person for tool purchasing at {company_name}?\n\nHi,\n\nI’ve reached out a couple of times regarding direct factory sourcing for {core_product}. I don't want to clutter your inbox if this isn't your department.\n\nCould you kindly point me to the person who handles purchasing for specialty auto tools? \n\nIf you are currently locked in with a supplier and not looking for better margins right now, just let me know and I will close your file. Thanks!\n\nBest regards,\n[Your Name]"
+        "1. 极简钩子 (3句话破冰 - 手机端最高回复率)": "Subject: {company_name} x {core_product} supply\n\nHi team,\n\nAre you open to adding a direct factory line for {core_product} to your catalog this quarter?\n\nWe manufacture these specifically for B2B distributors. By cutting out local trading companies, our partners typically see a 20%+ increase in profit margins.\n\nIf you're open to exploring, I can send a 30-sec video of our production line or a free sample. Worth a quick chat?\n\nBest regards,\n[Your Name]",
+        
+        "2. 痛点暴击 + 子弹图 (直击质量与售后痛点)": "Subject: Defective {core_product} / warranty claims\n\nHi team,\n\nMost auto tool distributors I speak with are frustrated by high return rates on {core_product} from general hardware suppliers.\n\nWe strictly specialize in automotive maintenance tools. Here is what we offer differently:\n- 100% vehicle-match testing before shipment.\n- Zero headache / near-zero return rates for your mechanic clients.\n- Flexible MOQs for trial orders (even 1-2 cartons).\n\nAre you the right person to speak with about upgrading your sourcing?\n\nBest regards,\n[Your Name]",
+        
+        "3. 视觉冲击 (用视频链接代替枯燥文字)": "Subject: Video: Inside our {core_product} factory\n\nHi team,\n\nI know you get a lot of emails, so I'll keep it brief. \n\nI made a quick 40-second video showing exactly how we manufacture and test {core_product} before shipping to our overseas partners:\n👉 [Insert Your YouTube/Google Drive Link Here]\n\nSeeing is believing. I'd love to send a risk-free trial box to your warehouse so you can test the quality yourself. Do you have 5 minutes next week for a brief call?\n\nBest regards,\n[Your Name]",
+        
+        "4. 欲擒故纵 (终极分手信 - 逼迫客户回复)": "Subject: Closing your file - {company_name}\n\nHi,\n\nI've reached out a few times about supplying direct-from-factory {core_product} to improve your margins, but haven't heard back.\n\nUsually, this means you are either locked into a contract with your current supplier, or this isn't your department.\n\nIf you are not interested, just reply 'No' and I will stop following up. If I should speak to someone else, could you kindly point me in their direction?\n\nThanks for your time!\n\nBest regards,\n[Your Name]"
     },
     "es": {
-        "1. 强力破冰 - 避开中间商 (Direct Sourcing)": "Asunto: Pregunta rápida sobre su cadena de suministro de {core_product}\n\nHola equipo de {company_name},\n\nHe estado siguiendo su crecimiento como distribuidor de herramientas. \n\nSé que los márgenes locales son cada vez más ajustados debido a los intermediarios. Fabricamos {core_product} y suministramos directamente a importadores como ustedes. Evitar a los intermediarios puede mejorar sus márgenes en un 20% de inmediato.\n\nNo requerimos grandes cantidades mínimas (MOQ) para empezar. ¿Estaría abierto a una breve videollamada la próxima semana para mostrarle nuestra fábrica y enviarle una muestra sin compromiso?\n\nSaludos,\n[Tu Nombre]",
-        "2. 痛点切入 - 品控与售后 (Quality & Returns)": "Asunto: Reducción de devoluciones en {core_product}\n\nHola equipo de {company_name},\n\nMuchos distribuidores se quejan de las altas tasas de devolución de los proveedores generales.\n\nComo nos especializamos estrictamente en herramientas automotrices (como {core_product}), cada lote se somete a rigurosas pruebas. Esto se traduce en cero dolores de cabeza para sus clientes.\n\n¿Podríamos organizar un pequeño pedido de prueba (incluso 1-2 cajas) este mes para que comprueben la calidad de primera mano?\n\nSaludos,\n[Tu Nombre]",
-        "3. 第二次跟进 - 视频验厂与背书 (Trust Building)": "Asunto: Video: Cómo probamos {core_product} antes de enviar\n\nHola equipo,\n\nNo he recibido respuesta, así que pensé que un video ayudaría.\n\nGrabé un breve video de cómo nuestro equipo de calidad prueba {core_product} antes de enviarlo. (Enlace: YouTube/Drive)\n\nTomamos la calidad muy en serio porque solo trabajamos B2B. Si tienen 5 minutos esta semana, me encantaría hablar sobre cómo podemos complementar su catálogo.\n\nSaludos,\n[Tu Nombre]",
-        "4. 终极试探 - 寻找采购决策人 (The Breakup)": "Asunto: ¿Persona adecuada para compras en {company_name}?\n\nHola,\n\nHe intentado comunicarme sobre el suministro directo de {core_product}. No quiero llenar su bandeja si este no es su departamento.\n\n¿Podría indicarme la persona encargada de compras de herramientas especiales?\n\nSi ya tienen un proveedor y no buscan mejores márgenes ahora, avíseme y cerraré su expediente. ¡Gracias!\n\nSaludos,\n[Tu Nombre]"
+        "1. 极简钩子 (3句话破冰 - 手机端最高回复率)": "Asunto: {company_name} x suministro de {core_product}\n\nHola equipo,\n\n¿Están abiertos a añadir una línea directa de fábrica de {core_product} a su catálogo este trimestre?\n\nFabricamos específicamente para distribuidores B2B. Al eliminar a las empresas comerciales intermediarias, nuestros socios suelen ver un aumento del 20%+ en sus márgenes de beneficio.\n\nSi están abiertos a explorar, puedo enviar un video de 30 segundos de nuestra producción o una muestra gratuita. ¿Valdría la pena una breve charla?\n\nSaludos,\n[Tu Nombre]",
+        
+        "2. 痛点暴击 + 子弹图 (直击质量与售后痛点)": "Asunto: Devoluciones y garantías en {core_product}\n\nHola equipo,\n\nMuchos distribuidores se frustran por las altas tasas de devolución de {core_product} cuando compran a proveedores generales.\n\nNos especializamos en herramientas automotrices. Esto es lo que ofrecemos:\n- Pruebas 100% compatibles con vehículos antes del envío.\n- Cero dolores de cabeza para sus clientes mecánicos.\n- MOQ flexible para pedidos de prueba (incluso 1-2 cajas).\n\n¿Es usted la persona adecuada para hablar sobre mejorar su suministro?\n\nSaludos,\n[Tu Nombre]",
+        
+        "3. 视觉冲击 (用视频链接代替枯燥文字)": "Asunto: Video: Dentro de nuestra fábrica de {core_product}\n\nHola equipo,\n\nSé que reciben muchos correos, así que seré breve.\n\nHice un video de 40 segundos que muestra exactamente cómo fabricamos y probamos {core_product} antes de enviarlo a nuestros socios:\n👉 [Inserta tu enlace de YouTube/Drive aquí]\n\nVer para creer. Me encantaría enviar una caja de prueba sin riesgo a su almacén. ¿Tienen 5 minutos la próxima semana para una breve llamada?\n\nSaludos,\n[Tu Nombre]",
+        
+        "4. 欲擒故纵 (终极分手信 - 逼迫客户回复)": "Asunto: Cerrando su expediente - {company_name}\n\nHola,\n\nMe he comunicado varias veces sobre el suministro directo de {core_product} para mejorar sus márgenes, pero no he recibido respuesta.\n\nPor lo general, esto significa que ya tienen un contrato cerrado con su proveedor actual o que este no es su departamento.\n\nSi no están interesados, solo responda 'No' y dejaré de insistir. Si debo hablar con otra persona, ¿podría indicarme quién es?\n\n¡Gracias por su tiempo!\n\nSaludos,\n[Tu Nombre]"
     }
 }
 
@@ -227,8 +234,8 @@ def send_smtp_email(to_addr, subject, body):
 with st.sidebar:
     st.header("🧭 系统导航")
     
-    if db.use_gsheets: st.success("✅ 云数据库已连接 (客户记录与配置永久保存)")
-    else: st.error("⚠️ 警告：当前使用云端临时缓存。网页刷新或休眠后【数据将丢失】！请参考文档配置 GSheets 密钥。")
+    if db.use_gsheets: st.success("✅ 云数据库已连接 (记录永久保存)")
+    else: st.error("⚠️ 警告：当前使用云端临时缓存。网页刷新后【数据将丢失】！")
     
     page = st.radio("请选择功能模块:", ["🔍 获客与开发工作台", "🗃️ 客户 CRM 数据库", "📨 发送追踪记录"])
     st.markdown("---")
@@ -268,6 +275,8 @@ with st.sidebar:
         if manual_keywords.strip(): final_keywords.extend([k.strip() for k in manual_keywords.splitlines() if k.strip()])
         final_keywords = list(set(final_keywords))
 
+# ==================== 核心抓取与分析逻辑 ====================
+
 # 在搜索引擎底层强力排除C端网站
 def duckduckgo_search(query, region, max_results=20):
     search_constraint = "-retail -repair -forum -blog -amazon -aliexpress -vevor"
@@ -290,18 +299,20 @@ def local_background_check(lead, country):
     ig_links = list(set(re.findall(r'(https?://(?:www\.)?instagram\.com/[a-zA-Z0-9._-]+)', lead['HTML内容'])))
     
     social_str = ""
-    if in_links: social_str += f"💼 LinkedIn (查规模): {in_links[0]}\n"
-    if fb_links: social_str += f"📘 Facebook (看门店/活动): {fb_links[0]}\n"
-    if ig_links: social_str += f"📸 Instagram (看产品宣发): {ig_links[0]}\n"
-    if not social_str: social_str = "⚠️ 未在官网提取到主要社交媒体，建议手动搜索其 LinkedIn 验证 B2B 属性。"
+    if in_links: social_str += f"💼 LinkedIn (查公司规模与架构): {in_links[0]}\n"
+    if fb_links: social_str += f"📘 Facebook (看参展活动/门头): {fb_links[0]}\n"
+    if ig_links: social_str += f"📸 Instagram (看产品发售动态): {ig_links[0]}\n"
+    if not social_str: social_str = "⚠️ 未在官网提取到主要社交媒体，建议手动搜索其 LinkedIn 验证是否为大型分销商。"
 
     meta_desc = soup.find('meta', attrs={'name': 'description'})
     intro = meta_desc['content'].strip() if meta_desc and meta_desc.get('content') else "未能抓取到 Meta 描述。"
     
-    return f"### 📊 资深业务员：{lead['公司名']} 客户背景深度调研\n**1. 官方网站**：{lead['官网']} (唯一有效入口)\n**2. 核心社媒矩阵 (二次验证)**：\n{social_str}\n**3. 官网介绍**：{intro[:300]}...\n**4. 关键人触达**：📥 发现邮箱：`{lead['邮箱']}`\n**5. 业务员分析指导**：由于已经过严格的 B2B 正向筛查，该公司极大概率属于区域性进口分销商。建议发送 [强力破冰 - 避开中间商] 模板切入。"
+    return f"### 📊 资深业务员：{lead['公司名']} 客户背景深度调研\n**1. 官方网站**：{lead['官网']} (第一顺位有效入口)\n**2. 核心社媒矩阵 (二次验证)**：\n{social_str}\n**3. 官网介绍**：{intro[:300]}...\n**4. 关键人触达**：📥 发现邮箱：`{lead['邮箱']}`\n**5. 业务员跟进策略**：由于该客户已通过系统严格的 B2B 正向筛查（强制包含批发商属性词），极大概率属于优质区域分销商。建议发送【极简破冰】邮件模板切入。"
+
+# ==================== 页面渲染逻辑 ====================
 
 if page == "🔍 获客与开发工作台":
-    st.title("🔧 获客与开发工作台 (全能深度版)")
+    st.title("🔧 获客与开发工作台 (精准强控版)")
     if st.button(f"🔍 强力深挖 5 家 【{display_country_name}】 顶级经销商", type="primary"):
         if not final_keywords: st.error("请先选择产品线！")
         else:
@@ -312,10 +323,10 @@ if page == "🔍 获客与开发工作台":
             random.shuffle(queries)
             progress_text = st.empty()
             
-            with st.spinner("深挖中，正在进行B2B属性强制验证..."):
+            with st.spinner("🚀 深挖中，正在执行严格黑名单剔除与 B2B 属性强制验证..."):
                 for q in queries:
                     if len(scored_leads) >= 5: break
-                    progress_text.write(f"🔄 正在深挖: `{q}` ({len(scored_leads)}/5)...")
+                    progress_text.write(f"🔄 正在深挖: `{q}` (已找到 {len(scored_leads)}/5 家合格客户)...")
                     urls = duckduckgo_search(q, region=config.get("region", "wt-wt"), max_results=15)
                     for url in urls:
                         if len(scored_leads) >= 5: break
@@ -326,11 +337,11 @@ if page == "🔍 获客与开发工作台":
                             soup = BeautifulSoup(html, 'html.parser')
                             text = soup.get_text().lower()
                             
-                            # 1. 严格负向排除（查杀：上市公司、终端门店、重型举升设备等）
+                            # 1. 严格负向排除（秒杀：上市公司、终端门店、重型举升设备、无关五金等）
                             if any(x in text for x in CHINA_GEO_BLOCKLIST + STRICT_BUSINESS_BLOCKLIST + IRRELEVANT_INDUSTRIES_BLOCKLIST): 
                                 continue
                             
-                            # 2. 强效正向验证（二次验证：网页必须包含至少一个 B2B 批发商关键词）
+                            # 2. 强效正向验证（核心校验：网页源码必须包含至少一个 B2B 批发商关键词，否则直接丢弃）
                             if not any(b2b_kw in text for b2b_kw in B2B_REQUIRED_KEYWORDS):
                                 continue
                                 
@@ -350,8 +361,8 @@ if page == "🔍 获客与开发工作台":
                 st.session_state.excluded_domains = seen
                 st.session_state.current_page = (len(st.session_state.all_leads) - 1) // 5
                 for l in scored_leads: db.add_client(l)
-                st.success(f"🎉 成功筛选并斩获 {len(scored_leads)} 家全新优质 B2B 经销商，已存入 CRM 数据库！")
-            else: st.warning("未发现符合严格B2B标准的新线索，请尝试更换产品线或重试。")
+                st.success(f"🎉 筛选完毕！剔除了海量无效数据，成功斩获 {len(scored_leads)} 家全新优质 B2B 经销商！")
+            else: st.warning("⚠️ 严格模式下未发现符合 B2B 标准的新线索，请尝试更换产品线或重试。")
 
     if st.session_state.all_leads:
         total = len(st.session_state.all_leads)
@@ -370,32 +381,32 @@ if page == "🔍 获客与开发工作台":
             col_t, col_d = st.columns([5, 1])
             with col_t: st.subheader(f"{i+1}. {lead['公司名']}")
             with col_d:
-                if st.button("🗑️ 移除此客户", key=f"del_{lead['客户ID']}"):
+                if st.button("🗑️ 移除客户", key=f"del_{lead['客户ID']}"):
                     db.delete_client(lead['客户ID'])
                     st.session_state.all_leads = [l for l in st.session_state.all_leads if l['客户ID'] != lead['客户ID']]
                     st.rerun()
-            st.markdown(f"**官网**: [{lead['官网']}]({lead['官网']}) | **核心匹配产品**: `{lead['匹配产品']}`")
+            st.markdown(f"**官网**: [{lead['官网']}]({lead['官网']}) | **抓取触发词**: `{lead['匹配产品']}`")
             
             history_count = len(emails_df[emails_df['收件人'] == lead['邮箱']]) if not emails_df.empty and lead['邮箱'] else 0
             if history_count > 0: st.warning(f"🕒 **联系追踪**: 已对该客户发送过 **{history_count}** 次邮件")
             else: st.success("🆕 **联系追踪**: 暂无该客户的邮件沟通记录。")
 
             if lead['官网'] not in st.session_state.local_reports:
-                if st.button(f"📊 生成深调档案 (官网+社媒)", key=f"bg_{i}"):
+                if st.button(f"📊 生成深调档案 (官网+社媒提取)", key=f"bg_{i}"):
                     st.session_state.local_reports[lead['官网']] = local_background_check(lead, lead['国家'])
                     st.rerun()
             if lead['官网'] in st.session_state.local_reports:
-                with st.expander("✅ 展开查看：背景调查报告", expanded=False): st.markdown(st.session_state.local_reports[lead['官网']])
+                with st.expander("✅ 展开查看：背景调查报告与社媒指引", expanded=False): st.markdown(st.session_state.local_reports[lead['官网']])
             
-            with st.expander("✉️ 展开开发信工作台 (撰写与发送)", expanded=True):
+            with st.expander("✉️ 高转化率开发信发送台", expanded=True):
                 lang = "es" if "Mexico" in lead['国家'] or "西班牙" in lead['国家'] else "en"
                 c_ang, c_to = st.columns([2, 1])
-                with c_ang: angle = st.selectbox("1️⃣ 选择开发跟进模板", list(EMAIL_TEMPLATES[lang].keys()), index=2 if history_count==1 else (3 if history_count>=2 else 0), key=f"ang_{i}")
+                with c_ang: angle = st.selectbox("1️⃣ 选择冷邮件开发策略 (PAS模型)", list(EMAIL_TEMPLATES[lang].keys()), index=2 if history_count==1 else (3 if history_count>=2 else 0), key=f"ang_{i}")
                 with c_to: target_email = st.text_input("收件人", value=lead['邮箱'], key=f"to_{i}")
                 
                 tpl = EMAIL_TEMPLATES[lang][angle].split("\n\n", 1)
                 mail_sub = st.text_input("邮件主题", value=tpl[0].replace("Subject: ", "").replace("Asunto: ", "").format(company_name=lead['公司名'], core_product=lead['匹配产品']), key=f"sub_{i}")
-                mail_body = st.text_area("邮件正文 (可自由修改)", value=tpl[1].format(company_name=lead['公司名'], core_product=lead['匹配产品']), height=200, key=f"body_{i}")
+                mail_body = st.text_area("邮件正文 (极简/子弹图排版，适合手机阅读)", value=tpl[1].format(company_name=lead['公司名'], core_product=lead['匹配产品']), height=220, key=f"body_{i}")
                 
                 c1, c2, c3 = st.columns(3)
                 with c1:
@@ -408,12 +419,12 @@ if page == "🔍 获客与开发工作台":
                         else: st.error(msg)
                 with c3:
                     if st.button("🔖 仅标记为已手动发送", key=f"mrk_{i}"):
-                        db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "(手动复制发送)", "状态": "手动标记"})
+                        db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "(已通过私人邮箱或 WhatsApp 发送)", "状态": "手动标记"})
                         st.rerun()
             st.markdown("---")
 
 elif page == "🗃️ 客户 CRM 数据库":
-    st.title("🗃️ 客户中心")
+    st.title("🗃️ 客户管理中心")
     df = db.get_clients()
     search = st.text_input("🔍 搜索公司名")
     if not df.empty:
@@ -423,12 +434,12 @@ elif page == "🗃️ 客户 CRM 数据库":
             del_id = st.text_input("请输入要删除的【客户ID】")
             if st.button("彻底删除", type="primary") and del_id:
                 db.delete_client(del_id.strip()); st.rerun()
-    else: st.info("数据库为空。")
+    else: st.info("数据库目前为空，请去工作台挖掘客户。")
 
 elif page == "📨 发送追踪记录":
     st.title("📨 邮件发送追踪")
     df_logs = db.get_emails()
     if not df_logs.empty:
         st.dataframe(df_logs.sort_values(by="发送时间", ascending=False), use_container_width=True)
-        st.download_button("📥 导出 CSV", df_logs.to_csv(index=False).encode('utf-8-sig'), "Email_Logs.csv", "text/csv")
-    else: st.info("暂无记录。")
+        st.download_button("📥 导出发送报告为 CSV", df_logs.to_csv(index=False).encode('utf-8-sig'), "Email_Logs.csv", "text/csv")
+    else: st.info("暂无发信记录。")
