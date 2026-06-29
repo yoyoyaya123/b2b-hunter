@@ -27,7 +27,7 @@ class DatabaseManager:
         self.sheet = None
         self.client_cols = ["客户ID", "公司名", "官网", "邮箱", "联系方式", "匹配产品", "国家", "状态", "添加时间"]
         self.email_cols = ["邮件ID", "客户公司", "收件人", "发送时间", "主题", "内容摘要", "状态"]
-        self.config_cols = ["配置项", "配置值"] # 新增配置表
+        self.config_cols = ["配置项", "配置值"] 
         self._init_connection()
 
     def _init_connection(self):
@@ -146,7 +146,7 @@ if 'all_leads' not in st.session_state:
     st.session_state.local_reports = {}
     st.session_state.current_page = 0
 
-# ==================== 黑名单与配置库 (极致优化版) ====================
+# ==================== 黑名单与配置库 ====================
 PLATFORM_BLOCKLIST = [
     "iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", "made-in-china.", "alibaba.", "aliexpress.", "indiamart.", "tradekey.", "hktdc.", "amazon.", "ebay.", "walmart.", "shopee.", "lazada.", "etsy.", "wayfair.", "temu.", "shein.", "trustpilot.", "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.", "grainger.", "fastenal.", "mscdirect.", "homedepot.", "lowes.", "menards.", "target.", "costco.", "vevor.", "harborfreight.", "prices.", ".cn", ".com.cn"
 ]
@@ -155,22 +155,19 @@ CHINA_GEO_BLOCKLIST = [
     "guangdong", "shenzhen", "guangzhou", "dongguan", "foshan", "zhongshan", "zhuhai", "zhejiang", "ningbo", "hangzhou", "yiwu", "wenzhou", "taizhou", "jinhua", "shaoxing", "jiangsu", "shanghai", "shandong", "qingdao", "jinan", "hebei", "henan", "beijing", "tianjin", "+86 ", "0086", "86-1", "86-0", "made in china", "china mainland", "mainland china", "chinese supplier"
 ]
 
-# 严格排除：上市公司/大型集团/关联企业/终端店/钣喷/轮胎店/上门维修
 STRICT_BUSINESS_BLOCKLIST = [
     "investor relations", "stock symbol", "shareholders", "annual report", "subsidiary of", "listed company", "nasdaq", "nyse", "group of companies", "holdings", "plc", "ltd group",
     "retail store", "retail only", "auto repair shop", "repair service", "body shop", "car wash", "tyre shop", "tire shop", "mechanic service", "mobile mechanic", "towing service", "collision center", "auto care clinic", "book an appointment", "schedule service", "taller mecánico", "centro de reparación", "chapa y pintura", "grúa", "автосервис", "ремонт авто", "шиномонтаж", "СТО"
 ]
 
-# 严格排除：非汽车专用工具/纯重型设备（千斤顶等）
 IRRELEVANT_INDUSTRIES_BLOCKLIST = [
     "garden tools", "lawn mower", "woodworking tools", "plumbing tools", "construction equipment", "agricultural machinery", "industrial supplies",
     "floor jack", "two-post lift", "car lift", "wheel balancer", "tire changer", "general hardware", "socket set only"
 ]
 
-# 强制包含词 (B2B正向验证，必须包含以下其一才算批发商)
 B2B_REQUIRED_KEYWORDS = ["wholesale", "distributor", "dealer", "trade account", "become a dealer", "b2b", "mayorista", "distribuidor", "importador", "trade strictly", "stockist"]
 
-# 优化后的精准产品词（去除了撬棒和正时，增加了 specialty / kit 属性）
+# 词库中已去除撬棒和正时
 BASE_EN_PRODUCTS = {
     "01 仪表与诊断系统": {"search": ["automotive diagnostic specialty tools", "radiator pressure tester kit", "cylinder compression tester gauge"]}, 
     "02 液体更换/制动工具": {"search": ["pneumatic brake fluid bleeder kit", "automotive oil extractor tool", "brake caliper wind back specialty tool"]}, 
@@ -191,24 +188,17 @@ COUNTRY_CONFIG = {
     "🇪🇸 西班牙/南美大区": {"region": "es-es", "role_words": ["mayorista", "importador", "distribuidor", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
 }
 
-# 高转化率邮件模板 (极简冷邮件风)
 EMAIL_TEMPLATES = {
     "en": {
         "1. 极简钩子 (3句话破冰 - 手机端最高回复率)": "Subject: {company_name} x {core_product} supply\n\nHi team,\n\nAre you open to adding a direct factory line for {core_product} to your catalog this quarter?\n\nWe manufacture these specifically for B2B distributors. By cutting out local trading companies, our partners typically see a 20%+ increase in profit margins.\n\nIf you're open to exploring, I can send a 30-sec video of our production line or a free sample. Worth a quick chat?\n\nBest regards,\n[Your Name]",
-        
         "2. 痛点暴击 + 子弹图 (直击质量与售后痛点)": "Subject: Defective {core_product} / warranty claims\n\nHi team,\n\nMost auto tool distributors I speak with are frustrated by high return rates on {core_product} from general hardware suppliers.\n\nWe strictly specialize in automotive maintenance tools. Here is what we offer differently:\n- 100% vehicle-match testing before shipment.\n- Zero headache / near-zero return rates for your mechanic clients.\n- Flexible MOQs for trial orders (even 1-2 cartons).\n\nAre you the right person to speak with about upgrading your sourcing?\n\nBest regards,\n[Your Name]",
-        
         "3. 视觉冲击 (用视频链接代替枯燥文字)": "Subject: Video: Inside our {core_product} factory\n\nHi team,\n\nI know you get a lot of emails, so I'll keep it brief. \n\nI made a quick 40-second video showing exactly how we manufacture and test {core_product} before shipping to our overseas partners:\n👉 [Insert Your YouTube/Google Drive Link Here]\n\nSeeing is believing. I'd love to send a risk-free trial box to your warehouse so you can test the quality yourself. Do you have 5 minutes next week for a brief call?\n\nBest regards,\n[Your Name]",
-        
         "4. 欲擒故纵 (终极分手信 - 逼迫客户回复)": "Subject: Closing your file - {company_name}\n\nHi,\n\nI've reached out a few times about supplying direct-from-factory {core_product} to improve your margins, but haven't heard back.\n\nUsually, this means you are either locked into a contract with your current supplier, or this isn't your department.\n\nIf you are not interested, just reply 'No' and I will stop following up. If I should speak to someone else, could you kindly point me in their direction?\n\nThanks for your time!\n\nBest regards,\n[Your Name]"
     },
     "es": {
         "1. 极简钩子 (3句话破冰 - 手机端最高回复率)": "Asunto: {company_name} x suministro de {core_product}\n\nHola equipo,\n\n¿Están abiertos a añadir una línea directa de fábrica de {core_product} a su catálogo este trimestre?\n\nFabricamos específicamente para distribuidores B2B. Al eliminar a las empresas comerciales intermediarias, nuestros socios suelen ver un aumento del 20%+ en sus márgenes de beneficio.\n\nSi están abiertos a explorar, puedo enviar un video de 30 segundos de nuestra producción o una muestra gratuita. ¿Valdría la pena una breve charla?\n\nSaludos,\n[Tu Nombre]",
-        
         "2. 痛点暴击 + 子弹图 (直击质量与售后痛点)": "Asunto: Devoluciones y garantías en {core_product}\n\nHola equipo,\n\nMuchos distribuidores se frustran por las altas tasas de devolución de {core_product} cuando compran a proveedores generales.\n\nNos especializamos en herramientas automotrices. Esto es lo que ofrecemos:\n- Pruebas 100% compatibles con vehículos antes del envío.\n- Cero dolores de cabeza para sus clientes mecánicos.\n- MOQ flexible para pedidos de prueba (incluso 1-2 cajas).\n\n¿Es usted la persona adecuada para hablar sobre mejorar su suministro?\n\nSaludos,\n[Tu Nombre]",
-        
         "3. 视觉冲击 (用视频链接代替枯燥文字)": "Asunto: Video: Dentro de nuestra fábrica de {core_product}\n\nHola equipo,\n\nSé que reciben muchos correos, así que seré breve.\n\nHice un video de 40 segundos que muestra exactamente cómo fabricamos y probamos {core_product} antes de enviarlo a nuestros socios:\n👉 [Inserta tu enlace de YouTube/Drive aquí]\n\nVer para creer. Me encantaría enviar una caja de prueba sin riesgo a su almacén. ¿Tienen 5 minutos la próxima semana para una breve llamada?\n\nSaludos,\n[Tu Nombre]",
-        
         "4. 欲擒故纵 (终极分手信 - 逼迫客户回复)": "Asunto: Cerrando su expediente - {company_name}\n\nHola,\n\nMe he comunicado varias veces sobre el suministro directo de {core_product} para mejorar sus márgenes, pero no he recibido respuesta.\n\nPor lo general, esto significa que ya tienen un contrato cerrado con su proveedor actual o que este no es su departamento.\n\nSi no están interesados, solo responda 'No' y dejaré de insistir. Si debo hablar con otra persona, ¿podría indicarme quién es?\n\n¡Gracias por su tiempo!\n\nSaludos,\n[Tu Nombre]"
     }
 }
@@ -235,7 +225,7 @@ with st.sidebar:
     st.header("🧭 系统导航")
     
     if db.use_gsheets: st.success("✅ 云数据库已连接 (记录永久保存)")
-    else: st.error("⚠️ 警告：当前使用云端临时缓存。网页刷新后【数据将丢失】！")
+    else: st.error("⚠️ 警告：当前使用云端临时缓存。网页刷新后数据将丢失！")
     
     page = st.radio("请选择功能模块:", ["🔍 获客与开发工作台", "🗃️ 客户 CRM 数据库", "📨 发送追踪记录"])
     st.markdown("---")
@@ -250,7 +240,7 @@ with st.sidebar:
             conf = {'smtp_server': smtp_server, 'smtp_port': str(smtp_port), 'smtp_user': smtp_user, 'smtp_pass': smtp_pass, 'email_sign': email_sign}
             st.session_state.update(conf)
             db.save_config(conf)
-            st.success("🎉 发信配置已永久保存入库！下次打开无需重新填写。")
+            st.success("🎉 发信配置已永久保存！")
 
     if page == "🔍 获客与开发工作台":
         st.markdown("---")
@@ -275,7 +265,6 @@ with st.sidebar:
         if manual_keywords.strip(): final_keywords.extend([k.strip() for k in manual_keywords.splitlines() if k.strip()])
         final_keywords = list(set(final_keywords))
 
-# 在搜索引擎底层强力排除C端网站
 def duckduckgo_search(query, region, max_results=20):
     search_constraint = "-retail -repair -forum -blog -amazon -aliexpress -vevor"
     for q in [f'{query} {search_constraint}', query]:
@@ -288,10 +277,8 @@ def duckduckgo_search(query, region, max_results=20):
             except: continue
     return []
 
-# 二次验证：深度提取官网和社媒矩阵
 def local_background_check(lead, country):
     soup = BeautifulSoup(lead['HTML内容'], 'html.parser')
-    
     fb_links = list(set(re.findall(r'(https?://(?:www\.)?facebook\.com/[a-zA-Z0-9._-]+)', lead['HTML内容'])))
     in_links = list(set(re.findall(r'(https?://(?:www\.)?linkedin\.com/company/[a-zA-Z0-9._-]+)', lead['HTML内容'])))
     ig_links = list(set(re.findall(r'(https?://(?:www\.)?instagram\.com/[a-zA-Z0-9._-]+)', lead['HTML内容'])))
@@ -304,8 +291,7 @@ def local_background_check(lead, country):
 
     meta_desc = soup.find('meta', attrs={'name': 'description'})
     intro = meta_desc['content'].strip() if meta_desc and meta_desc.get('content') else "未能抓取到 Meta 描述。"
-    
-    return f"### 📊 资深业务员：{lead['公司名']} 客户背景深度调研\n**1. 官方网站**：{lead['官网']} (唯一有效入口)\n**2. 核心社媒矩阵 (二次验证)**：\n{social_str}\n**3. 官网介绍**：{intro[:300]}...\n**4. 关键人触达**：📥 发现邮箱：`{lead['邮箱']}`\n**5. 业务员跟进策略**：由于该客户已通过系统严格的 B2B 正向筛查，极大概率属于优质区域分销商。建议发送【极简破冰】邮件模板切入。"
+    return f"### 📊 资深业务员：{lead['公司名']} 客户背景深度调研\n**1. 官方网站**：{lead['官网']}\n**2. 核心社媒矩阵**：\n{social_str}\n**3. 官网介绍**：{intro[:300]}...\n**4. 关键人触达**：📥 发现邮箱：`{lead['邮箱']}`"
 
 if page == "🔍 获客与开发工作台":
     st.title("🔧 获客与开发工作台 (精准强控版)")
@@ -333,13 +319,8 @@ if page == "🔍 获客与开发工作台":
                             soup = BeautifulSoup(html, 'html.parser')
                             text = soup.get_text().lower()
                             
-                            # 1. 严格负向排除
-                            if any(x in text for x in CHINA_GEO_BLOCKLIST + STRICT_BUSINESS_BLOCKLIST + IRRELEVANT_INDUSTRIES_BLOCKLIST): 
-                                continue
-                            
-                            # 2. 强效正向验证（必须包含至少一个 B2B 关键词）
-                            if not any(b2b_kw in text for b2b_kw in B2B_REQUIRED_KEYWORDS):
-                                continue
+                            if any(x in text for x in CHINA_GEO_BLOCKLIST + STRICT_BUSINESS_BLOCKLIST + IRRELEVANT_INDUSTRIES_BLOCKLIST): continue
+                            if not any(b2b_kw in text for b2b_kw in B2B_REQUIRED_KEYWORDS): continue
                                 
                             matched = [kw for kw in final_keywords if kw.lower() in text]
                             if not matched: continue
@@ -364,139 +345,3 @@ if page == "🔍 获客与开发工作台":
         total = len(st.session_state.all_leads)
         total_p = (total - 1) // 5 + 1
         cur_p = st.session_state.current_page
-        c1, c2, c3 = st.columns([1, 1, 3])
-        with c1:
-            if st.button("⬅️ 上一页", disabled=(cur_p == 0)): st.session_state.current_page -= 1; st.rerun()
-        with c2:
-            if st.button("下一页 ➡️", disabled=(cur_p >= total_p - 1)): st.session_state.current_page += 1; st.rerun()
-        with c3: st.write(f"第 {cur_p+1}/{total_p} 页 · 共 {total} 家客户")
-
-        emails_df = db.get_emails()
-        for i in range(cur_p * 5, min((cur_p + 1) * 5, total)):
-            lead = st.session_state.all_leads[i]
-            col_t, col_d = st.columns([5, 1])
-            with col_t: st.subheader(f"{i+1}. {lead['公司名']}")
-            with col_d:
-                if st.button("🗑️ 移除此客户", key=f"del_{lead['客户ID']}"):
-                    db.delete_client(lead['客户ID'])
-                    st.session_state.all_leads = [l for l in st.session_state.all_leads if l['客户ID'] != lead['客户ID']]
-                    st.rerun()
-            st.markdown(f"**官网**: [{lead['官网']}]({lead['官网']}) | **核心匹配产品**: `{lead['匹配产品']}`")
-            
-            history_count = len(emails_df[emails_df['收件人'] == lead['邮箱']]) if not emails_df.empty and lead['邮箱'] else 0
-            if history_count > 0: st.warning(f"🕒 **联系追踪**: 已对该客户发送过 **{history_count}** 次邮件")
-            else: st.success("🆕 **联系追踪**: 暂无该客户的邮件沟通记录。")
-
-            if lead['官网'] not in st.session_state.local_reports:
-                if st.button(f"📊 生成深调档案 (官网+社媒提取)", key=f"bg_{i}"):
-                    st.session_state.local_reports[lead['官网']] = local_background_check(lead, lead['国家'])
-                    st.rerun()
-            if lead['官网'] in st.session_state.local_reports:
-                with st.expander("✅ 展开查看：背景调查报告", expanded=False): st.markdown(st.session_state.local_reports[lead['官网']])
-            
-            with st.expander("✉️ 展开开发信工作台 (撰写与发送)", expanded=True):
-                lang = "es" if "Mexico" in lead['国家'] or "西班牙" in lead['国家'] else "en"
-                c_ang, c_to = st.columns([2, 1])
-                with c_ang: angle = st.selectbox("1️⃣ 选择开发跟进模板", list(EMAIL_TEMPLATES[lang].keys()), index=2 if history_count==1 else (3 if history_count>=2 else 0), key=f"ang_{i}")
-                with c_to: target_email = st.text_input("收件人", value=lead['邮箱'], key=f"to_{i}")
-                
-                tpl = EMAIL_TEMPLATES[lang][angle].split("\n\n", 1)
-                mail_sub = st.text_input("邮件主题", value=tpl[0].replace("Subject: ", "").replace("Asunto: ", "").format(company_name=lead['公司名'], core_product=lead['匹配产品']), key=f"sub_{i}")
-                mail_body = st.text_area("邮件正文 (可自由修改)", value=tpl[1].format(company_name=lead['公司名'], core_product=lead['匹配产品']), height=200, key=f"body_{i}")
-                
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    if st.button("🚀 立即 SMTP 发送", key=f"snd_{i}", type="primary"):
-                        success, msg = send_smtp_email(target_email, mail_sub, mail_body)
-                        if success:
-                            st.success("✅ 邮件发送成功！")
-                            db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": mail_body[:50]+"...", "状态": "成功"})
-                            st.rerun()
-                        else: st.error(msg)
-                with c3:
-                    if st.button("🔖 仅标记为已手动发送", key=f"mrk_{i}"):
-                        db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "(手动复制发送)", "状态": "手动标记"})
-                        st.rerun()
-            st.markdown("---")
-
-elif page == "🗃️ 客户 CRM 数据库":
-    st.title("🗃️ 客户管理中心")
-    df = db.get_clients()
-    
-    st.info("💡 提示：在下方搜索框输入公司名，即可唤醒该客户的【专属开发信发送台】。")
-    search = st.text_input("🔍 搜索公司名 (支持模糊搜索)")
-    
-    if not df.empty:
-        # 1. 过滤并展示数据表格
-        if search:
-            df_filtered = df[df['公司名'].str.contains(search, case=False, na=False)]
-        else:
-            df_filtered = df
-            
-        st.dataframe(df_filtered, use_container_width=True)
-
-        # 2. 搜索状态下，激活 CRM 下方独立发件台
-        if search and not df_filtered.empty:
-            st.markdown("---")
-            st.subheader("🚀 客户专属跟进台")
-            emails_df = db.get_emails()
-            
-            for i, row in df_filtered.iterrows():
-                # 安全地处理 Pandas 数据到字典，把 nan 转成空字符串
-                lead = {k: ("" if pd.isna(v) else v) for k, v in row.to_dict().items()}
-                
-                col_t, col_d = st.columns([5, 1])
-                with col_t: 
-                    st.markdown(f"#### 🎯 {lead.get('公司名', '未知公司')}")
-                    st.markdown(f"**官网**: {lead.get('官网', '')} | **主营标签**: `{lead.get('匹配产品', 'B2B Auto Tools')}`")
-                with col_d:
-                    if st.button("🗑️ 彻底删除", key=f"crm_del_{lead.get('客户ID', i)}"):
-                        db.delete_client(lead.get('客户ID'))
-                        st.rerun()
-
-                history_count = len(emails_df[emails_df['收件人'] == lead.get('邮箱')]) if not emails_df.empty and lead.get('邮箱') else 0
-                if history_count > 0: st.warning(f"🕒 **联系追踪**: 已对该客户发送过 **{history_count}** 次邮件")
-                else: st.success("🆕 **联系追踪**: 暂无该客户的邮件沟通记录。")
-
-                with st.expander("✉️ 唤醒开发信发送台", expanded=True):
-                    lang = "es" if "Mexico" in str(lead.get('国家','')) or "西班牙" in str(lead.get('国家','')) else "en"
-                    c_ang, c_to = st.columns([2, 1])
-                    with c_ang: angle = st.selectbox("1️⃣ 选择冷邮件开发策略 (PAS模型)", list(EMAIL_TEMPLATES[lang].keys()), index=2 if history_count==1 else (3 if history_count>=2 else 0), key=f"crm_ang_{i}")
-                    
-                    # 允许直接修改邮箱发信
-                    with c_to: target_email = st.text_input("收件人 (可自由修改替换为高管邮箱)", value=str(lead.get('邮箱', '')), key=f"crm_to_{i}")
-                    
-                    tpl = EMAIL_TEMPLATES[lang][angle].split("\n\n", 1)
-                    sub_fmt = tpl[0].replace("Subject: ", "").replace("Asunto: ", "").format(company_name=lead.get('公司名',''), core_product=lead.get('匹配产品','Auto Tools'))
-                    body_fmt = tpl[1].format(company_name=lead.get('公司名',''), core_product=lead.get('匹配产品','Auto Tools'))
-                    
-                    mail_sub = st.text_input("邮件主题", value=sub_fmt, key=f"crm_sub_{i}")
-                    mail_body = st.text_area("邮件正文 (极简/子弹图排版，适合手机阅读)", value=body_fmt, height=220, key=f"crm_body_{i}")
-                    
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        if st.button("🚀 立即 SMTP 发送", key=f"crm_snd_{i}", type="primary"):
-                            if not target_email.strip():
-                                st.error("⚠️ 邮箱不能为空！请手动输入。")
-                            else:
-                                success, msg = send_smtp_email(target_email, mail_sub, mail_body)
-                                if success:
-                                    st.success("✅ 邮件发送成功！")
-                                    db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead.get('公司名',''), "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": mail_body[:50]+"...", "状态": "成功"})
-                                    st.rerun()
-                                else: st.error(msg)
-                    with c3:
-                        if st.button("🔖 仅标记为已手动发送", key=f"crm_mrk_{i}"):
-                            db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead.get('公司名',''), "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "(已通过私人邮箱或 WhatsApp 发送)", "状态": "手动标记"})
-                            st.rerun()
-            st.markdown("---")
-            
-    else: st.info("数据库目前为空，请去工作台挖掘客户。")
-
-elif page == "📨 发送追踪记录":
-    st.title("📨 邮件发送追踪")
-    df_logs = db.get_emails()
-    if not df_logs.empty:
-        st.dataframe(df_logs.sort_values(by="发送时间", ascending=False), use_container_width=True)
-        st.download_button("📥 导出发送报告为 CSV", df_logs.to_csv(index=False).encode('utf-8-sig'), "Email_Logs.csv", "text/csv")
-    else: st.info("暂无发信记录。")
