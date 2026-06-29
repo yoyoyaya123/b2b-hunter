@@ -55,7 +55,6 @@ class DatabaseManager:
             if not os.path.exists("db_emails.csv"): pd.DataFrame(columns=self.email_cols).to_csv("db_emails.csv", index=False)
             if not os.path.exists("db_config.csv"): pd.DataFrame(columns=self.config_cols).to_csv("db_config.csv", index=False)
 
-    # ...保持原有的 get_clients, add_client, delete_client, get_existing_urls_and_domains, get_emails, log_email 方法不变...
     def get_clients(self):
         if self.use_gsheets:
             try: return pd.DataFrame(self.sheet.worksheet("Clients").get_all_records())
@@ -110,7 +109,6 @@ class DatabaseManager:
             except: pass
         pd.DataFrame([clean_data]).to_csv("db_emails.csv", mode='a', header=False, index=False)
 
-    # 【新增功能】：读取和保存系统配置 (SMTP等)
     def get_config(self):
         if self.use_gsheets:
             try:
@@ -137,7 +135,6 @@ db = DatabaseManager()
 
 # ==================== 本地缓存与启动加载 ====================
 if 'config_loaded' not in st.session_state:
-    # 首次启动时，从数据库加载之前保存的 SMTP 配置
     saved_conf = db.get_config()
     st.session_state.update(saved_conf)
     st.session_state['config_loaded'] = True
@@ -148,14 +145,42 @@ if 'all_leads' not in st.session_state:
     st.session_state.local_reports = {}
     st.session_state.current_page = 0
 
-# ==================== 黑名单与配置库 ====================
-PLATFORM_BLOCKLIST = ["iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", "made-in-china.", "alibaba.", "aliexpress.", "indiamart.", "tradekey.", "hktdc.", "manufacturers.", "suppliers.", "amazon.", "ebay.", "walmart.", "shopee.", "lazada.", "etsy.", "wayfair.", "temu.", "shein.", "trustpilot.", "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.", "grainger.", "fastenal.", "mscdirect.", "homedepot.", "lowes.", "menards.", "target.", "costco.", "carrefour.", "aldi.", "tesco.", "macys.", "snap-on.", "mactools.", "matcotools.", "harborfreight.", "shopping.", "prices.", "vevor.", "northerntool.", "princessauto.", "kmstools.", "machineryhouse.", "news.", "blog.", "magazine.", "journal.", "press.", "wiki.", "forbes.", "reuters.", "bloomberg.", ".cn", ".com.cn", ".tw", ".hk"]
-TITLE_BLOCKLIST = ["directory", "top 10", "top 20", "top 5", "list of", "manufacturers in", "suppliers of", "best suppliers", "news", "blog", "magazine", "press release", "yellow pages", "b2b platform"]
-CHINA_GEO_BLOCKLIST = ["guangdong", "shenzhen", "guangzhou", "dongguan", "foshan", "zhongshan", "zhuhai", "zhejiang", "ningbo", "hangzhou", "yiwu", "wenzhou", "taizhou", "jinhua", "shaoxing", "jiangsu", "shanghai", "shandong", "qingdao", "jinan", "hebei", "henan", "beijing", "tianjin", "+86 ", "0086", "86-1", "86-0", "made in china", "china mainland", "mainland china", "chinese supplier"]
-STRICT_BUSINESS_BLOCKLIST = ["investor relations", "stock symbol", "shareholders", "annual report", "subsidiary of", "listed company", "nasdaq", "nyse", "group of companies", "retail store", "consumer electronics", "superstore", "hypermarket", "retail only", "auto repair shop", "repair service", "body shop", "car wash", "tyre shop", "tire shop", "mechanic service", "mobile mechanic", "towing service", "collision center", "auto care clinic", "taller mecánico", "centro de reparación", "chapa y pintura", "grúa", "автосервис", "ремонт авто", "шиномонтаж", "СТО", "Autoreparatur", "Reparaturservice", "Reifenservice", "Abschleppdienst"]
-IRRELEVANT_INDUSTRIES_BLOCKLIST = ["garden tools", "lawn mower", "woodworking tools", "plumbing tools", "construction equipment", "agricultural machinery", "industrial supplies"]
-BASE_EN_PRODUCTS = {"01 仪表检测工具": {"search": ["radiator pressure tester", "cylinder compression tester", "fuel pressure gauge"]}, "02 液体更换/补充工具": {"search": ["brake fluid replacement tool", "brake bleeder", "oil extractor"]}, "03 汽车空调制冷工具": {"search": ["a/c manifold gauge", "refrigerant charging kit", "a/c leak detection"]}, "04 车身拆卸/卡扣工具": {"search": ["trim removal tool", "plastic pry tools", "car clip set"]}, "05 发动机正时工具": {"search": ["engine timing tool", "camshaft locking tool", "crankshaft tool"]}}
-BASE_ES_PRODUCTS = {"01 仪表检测工具": {"search": ["probador de presión de radiador", "comprobador de compresión", "medidor de presión de combustible"]}, "02 液体更换/补充工具": {"search": ["purgador de frenos", "extractor de aceite", "bomba de vacío"]}, "03 汽车空调制冷工具": {"search": ["manómetro de aire acondicionado", "kit de carga de refrigerante", "detector de fugas a/c"]}, "04 车身拆卸/卡扣工具": {"search": ["herramientas para desmontar molduras", "alicates para abrazaderas", "kit de grapas coche"]}, "05 发动机正时工具": {"search": ["kit de calado de motor", "herramienta de sincronización", "bloqueo de árbol de levas"]}}
+# ==================== 黑名单与配置库 (极致优化版) ====================
+PLATFORM_BLOCKLIST = [
+    "iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", "made-in-china.", "alibaba.", "aliexpress.", "indiamart.", "tradekey.", "hktdc.", "amazon.", "ebay.", "walmart.", "shopee.", "lazada.", "etsy.", "wayfair.", "temu.", "shein.", "trustpilot.", "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.", "grainger.", "fastenal.", "mscdirect.", "homedepot.", "lowes.", "menards.", "target.", "costco.", "vevor.", "harborfreight.", "prices.", ".cn", ".com.cn"
+]
+
+CHINA_GEO_BLOCKLIST = [
+    "guangdong", "shenzhen", "guangzhou", "dongguan", "foshan", "zhongshan", "zhuhai", "zhejiang", "ningbo", "hangzhou", "yiwu", "wenzhou", "taizhou", "jinhua", "shaoxing", "jiangsu", "shanghai", "shandong", "qingdao", "jinan", "hebei", "henan", "beijing", "tianjin", "+86 ", "0086", "86-1", "86-0", "made in china", "china mainland", "mainland china", "chinese supplier"
+]
+
+# 严格排除：上市公司/大型集团/关联企业/终端店/钣喷/轮胎店/上门维修
+STRICT_BUSINESS_BLOCKLIST = [
+    "investor relations", "stock symbol", "shareholders", "annual report", "subsidiary of", "listed company", "nasdaq", "nyse", "group of companies", "holdings", "plc", "ltd group",
+    "retail store", "retail only", "auto repair shop", "repair service", "body shop", "car wash", "tyre shop", "tire shop", "mechanic service", "mobile mechanic", "towing service", "collision center", "auto care clinic", "book an appointment", "schedule service", "taller mecánico", "centro de reparación", "chapa y pintura", "grúa", "автосервис", "ремонт авто", "шиномонтаж", "СТО"
+]
+
+# 严格排除：非汽车专用工具/纯重型设备（千斤顶等）
+IRRELEVANT_INDUSTRIES_BLOCKLIST = [
+    "garden tools", "lawn mower", "woodworking tools", "plumbing tools", "construction equipment", "agricultural machinery", "industrial supplies",
+    "floor jack", "two-post lift", "car lift", "wheel balancer", "tire changer", "general hardware", "socket set only"
+]
+
+# 强制包含词 (B2B正向验证，必须包含以下其一才算批发商)
+B2B_REQUIRED_KEYWORDS = ["wholesale", "distributor", "dealer", "trade account", "become a dealer", "b2b", "mayorista", "distribuidor", "importador", "trade strictly", "stockist"]
+
+# 优化后的精准产品词（去除了撬棒和正时，增加了 specialty / kit 属性）
+BASE_EN_PRODUCTS = {
+    "01 仪表与诊断系统": {"search": ["automotive diagnostic specialty tools", "radiator pressure tester kit", "cylinder compression tester gauge"]}, 
+    "02 液体更换/制动工具": {"search": ["pneumatic brake fluid bleeder kit", "automotive oil extractor tool", "brake caliper wind back specialty tool"]}, 
+    "03 汽车空调专检": {"search": ["automotive a/c manifold gauge set", "ac leak detection kit auto", "refrigerant recovery automotive"]}
+}
+BASE_ES_PRODUCTS = {
+    "01 仪表与诊断系统": {"search": ["kit de probador de presión de radiador", "comprobador de compresión automotriz", "herramientas especiales de diagnóstico"]}, 
+    "02 液体更换/制动工具": {"search": ["purgador de frenos neumático", "extractor de aceite automotriz", "bomba de vacío automotriz"]}, 
+    "03 汽车空调专检": {"search": ["manómetro de aire acondicionado automotriz", "kit de detección de fugas a/c", "recuperador de refrigerante automotriz"]}
+}
+
 COUNTRY_CONFIG = {
     "🇺🇸 美国 (USA)": {"region": "us-en", "role_words": ["wholesaler", "distributor", "supplier", "dealer"], "product_lines": BASE_EN_PRODUCTS},
     "🇬🇧 英国 (UK)": {"region": "uk-en", "role_words": ["wholesaler", "distributor", "supplier", "dealer"], "product_lines": BASE_EN_PRODUCTS},
@@ -164,18 +189,20 @@ COUNTRY_CONFIG = {
     "🇩🇪 德国 (Germany)": {"region": "de-de", "role_words": ["Großhandel", "Importeur", "Distributor", "Händler"], "product_lines": {"01 仪表检测": {"search": ["Kühlsystem-Dichtheitsprüfer", "Kompressionstester"]}}},
     "🇪🇸 西班牙/南美大区": {"region": "es-es", "role_words": ["mayorista", "importador", "distribuidor", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
 }
+
+# 高转化率邮件模板 (PAS模型)
 EMAIL_TEMPLATES = {
     "en": {
-        "1. 首次触达 - 供应链降本 (Cost & Margin)": "Subject: Supply chain idea for {company_name}\n\nHi team at {company_name},\n\nI noticed you supply {core_product} and related tools to the local market.\n\nWith recent supply chain shifts, many independent distributors are facing margin squeezes from local middlemen. We help suppliers like you bypass the middleman and source directly, allowing for smaller, flexible trial orders without tying up your cash flow.\n\nWould you be open to a quick chat to see if this fits your upcoming inventory planning?\n\nBest regards,\n[Your Name]",
-        "2. 首次触达 - 测试试单 (Trial Order)": "Subject: Trial order support for {core_product}\n\nHi team at {company_name},\n\nI see you focus on {core_product} for the local auto repair market.\n\nTesting a new supplier can be risky. To help you lower the trial cost, we offer small MOQ test orders and pre-shipment video confirmations, ensuring you get exactly what your clients need without heavy upfront investment.\n\nAre you open to exploring a risk-free trial order this quarter?\n\nBest regards,\n[Your Name]",
-        "3. 第二次跟进 - 行业案例补充 (Follow-up 1)": "Subject: Following up on {core_product} sourcing\n\nHi team at {company_name},\n\nJust bubbling this up. I know you're busy, but I wanted to share a quick case study: we recently helped a similar distributor cut their sourcing costs by 15% on {core_product} without sacrificing quality.\n\nCould we find 5 minutes next week to see if this makes sense for you?\n\nBest regards,\n[Your Name]",
-        "4. 第三次跟进 - 寻找关键人 (Follow-up 2)": "Subject: Right person to speak with at {company_name}?\n\nHi,\n\nI’m trying to connect with the person in charge of purchasing {core_product}. Am I reaching out to the right contact?\n\nIf not, could you kindly point me in the right direction? \n\nIf this isn't a priority right now, I completely understand and won't reach out again. Best of luck with your business!\n\nBest regards,\n[Your Name]"
+        "1. 强力破冰 - 避开中间商 (Direct Sourcing)": "Subject: Quick question about your {core_product} supply chain\n\nHi team at {company_name},\n\nI’ve been following your growth as an independent tool distributor. \n\nI know local margins are getting tighter due to domestic wholesalers adding their markups. We manufacture {core_product} and supply directly to regional distributors like you, allowing you to bypass the middlemen and instantly improve your margins by 20%.\n\nWe don't require massive MOQs to start. Would you be open to a quick video call next week so I can show you our production line and send a risk-free sample?\n\nBest regards,\n[Your Name]",
+        "2. 痛点切入 - 品控与售后 (Quality & Returns)": "Subject: Reducing warranty claims on {core_product}\n\nHi team at {company_name},\n\nMany auto tool distributors complain about high return rates and poor after-sales support from general hardware suppliers.\n\nSince we strictly specialize in automotive diagnostic & maintenance tools (like {core_product}), every batch undergoes rigorous vehicle-match testing. This translates to near-zero return rates for your trade accounts.\n\nCould we arrange a small trial order (even just 1-2 cartons) this month so your mechanics can test the build quality firsthand?\n\nBest regards,\n[Your Name]",
+        "3. 第二次跟进 - 视频验厂与背书 (Trust Building)": "Subject: Video: How we test {core_product} before shipping\n\nHi team,\n\nI didn't hear back, so I thought a visual might help. \n\nI recorded a short 30-second video of how our QA team tests the {core_product} before it ships out to our overseas distributors. (Insert Link: YouTube/Drive)\n\nWe take quality seriously because we only do B2B. If you have 5 minutes this week, I'd love to discuss how our specialty tool lineup can complement your current catalog.\n\nBest regards,\n[Your Name]",
+        "4. 终极试探 - 寻找采购决策人 (The Breakup)": "Subject: Appropriate person for tool purchasing at {company_name}?\n\nHi,\n\nI’ve reached out a couple of times regarding direct factory sourcing for {core_product}. I don't want to clutter your inbox if this isn't your department.\n\nCould you kindly point me to the person who handles purchasing for specialty auto tools? \n\nIf you are currently locked in with a supplier and not looking for better margins right now, just let me know and I will close your file. Thanks!\n\nBest regards,\n[Your Name]"
     },
     "es": {
-        "1. 首次触达 - 供应链降本 (Cost & Margin)": "Asunto: Idea de suministro para {company_name}\n\nHola equipo de {company_name},\n\nNoté que distribuyen {core_product} en su mercado local.\n\nMuchos distribuidores independientes enfrentan márgenes reducidos por los intermediarios. Ayudamos a importadores como ustedes a comprar directamente desde el origen, permitiendo pedidos de prueba pequeños y flexibles sin comprometer su flujo de caja.\n\n¿Estarían abiertos a una breve charla para ver si esto encaja en su planificación de inventario?\n\nSaludos cordiales,\n[Tu Nombre]",
-        "2. 首次触达 - 测试试单 (Trial Order)": "Asunto: Soporte de pedidos de prueba para {core_product}\n\nHola equipo de {company_name},\n\nVeo que se enfocan en {core_product}.\n\nProbar un nuevo proveedor puede ser riesgoso. Para reducir el costo de prueba, ofrecemos pequeños pedidos y confirmaciones por video antes del envío, asegurando que obtengan lo que necesitan sin una gran inversión inicial.\n\n¿Están abiertos a explorar un pedido de prueba sin riesgos este trimestre?\n\nSaludos cordiales,\n[Tu Nombre]",
-        "3. 第二次跟进 - 行业案例补充 (Follow-up 1)": "Asunto: Seguimiento sobre suministro de {core_product}\n\nHola equipo de {company_name},\n\nSé que están ocupados, pero quería compartir un caso rápido: recientemente ayudamos a un distribuidor similar a reducir sus costos en {core_product} un 15% sin sacrificar calidad.\n\n¿Podríamos hablar 5 minutos la próxima semana para ver si esto tiene sentido para ustedes?\n\nSaludos cordiales,\n[Tu Nombre]",
-        "4. 第三次跟进 - 寻找关键人 (Follow-up 2)": "Asunto: ¿Persona adecuada en {company_name}?\n\nHola,\n\nIntento conectarme con el responsable de compras de {core_product}. ¿Me comunico con el contacto correcto?\n\nSi no es así, ¿podría orientarme en la dirección correcta?\n\nSi esto no es prioridad ahora, lo entiendo y no volveré a insistir. ¡Éxito en sus negocios!\n\nSaludos cordiales,\n[Tu Nombre]"
+        "1. 强力破冰 - 避开中间商 (Direct Sourcing)": "Asunto: Pregunta rápida sobre su cadena de suministro de {core_product}\n\nHola equipo de {company_name},\n\nHe estado siguiendo su crecimiento como distribuidor de herramientas. \n\nSé que los márgenes locales son cada vez más ajustados debido a los intermediarios. Fabricamos {core_product} y suministramos directamente a importadores como ustedes. Evitar a los intermediarios puede mejorar sus márgenes en un 20% de inmediato.\n\nNo requerimos grandes cantidades mínimas (MOQ) para empezar. ¿Estaría abierto a una breve videollamada la próxima semana para mostrarle nuestra fábrica y enviarle una muestra sin compromiso?\n\nSaludos,\n[Tu Nombre]",
+        "2. 痛点切入 - 品控与售后 (Quality & Returns)": "Asunto: Reducción de devoluciones en {core_product}\n\nHola equipo de {company_name},\n\nMuchos distribuidores se quejan de las altas tasas de devolución de los proveedores generales.\n\nComo nos especializamos estrictamente en herramientas automotrices (como {core_product}), cada lote se somete a rigurosas pruebas. Esto se traduce en cero dolores de cabeza para sus clientes.\n\n¿Podríamos organizar un pequeño pedido de prueba (incluso 1-2 cajas) este mes para que comprueben la calidad de primera mano?\n\nSaludos,\n[Tu Nombre]",
+        "3. 第二次跟进 - 视频验厂与背书 (Trust Building)": "Asunto: Video: Cómo probamos {core_product} antes de enviar\n\nHola equipo,\n\nNo he recibido respuesta, así que pensé que un video ayudaría.\n\nGrabé un breve video de cómo nuestro equipo de calidad prueba {core_product} antes de enviarlo. (Enlace: YouTube/Drive)\n\nTomamos la calidad muy en serio porque solo trabajamos B2B. Si tienen 5 minutos esta semana, me encantaría hablar sobre cómo podemos complementar su catálogo.\n\nSaludos,\n[Tu Nombre]",
+        "4. 终极试探 - 寻找采购决策人 (The Breakup)": "Asunto: ¿Persona adecuada para compras en {company_name}?\n\nHola,\n\nHe intentado comunicarme sobre el suministro directo de {core_product}. No quiero llenar su bandeja si este no es su departamento.\n\n¿Podría indicarme la persona encargada de compras de herramientas especiales?\n\nSi ya tienen un proveedor y no buscan mejores márgenes ahora, avíseme y cerraré su expediente. ¡Gracias!\n\nSaludos,\n[Tu Nombre]"
     }
 }
 
@@ -215,7 +242,7 @@ with st.sidebar:
         if st.button("💾 永久保存发信配置"):
             conf = {'smtp_server': smtp_server, 'smtp_port': str(smtp_port), 'smtp_user': smtp_user, 'smtp_pass': smtp_pass, 'email_sign': email_sign}
             st.session_state.update(conf)
-            db.save_config(conf) # 写入永久数据库
+            db.save_config(conf)
             st.success("🎉 发信配置已永久保存入库！下次打开无需重新填写。")
 
     if page == "🔍 获客与开发工作台":
@@ -241,8 +268,10 @@ with st.sidebar:
         if manual_keywords.strip(): final_keywords.extend([k.strip() for k in manual_keywords.splitlines() if k.strip()])
         final_keywords = list(set(final_keywords))
 
+# 在搜索引擎底层强力排除C端网站
 def duckduckgo_search(query, region, max_results=20):
-    for q in [f'{query} -amazon -aliexpress -vevor', query]:
+    search_constraint = "-retail -repair -forum -blog -amazon -aliexpress -vevor"
+    for q in [f'{query} {search_constraint}', query]:
         for backend in ['lite', 'html', 'api']:
             try:
                 results = []
@@ -252,13 +281,24 @@ def duckduckgo_search(query, region, max_results=20):
             except: continue
     return []
 
+# 二次验证：深度提取官网和社媒矩阵
 def local_background_check(lead, country):
     soup = BeautifulSoup(lead['HTML内容'], 'html.parser')
+    
     fb_links = list(set(re.findall(r'(https?://(?:www\.)?facebook\.com/[a-zA-Z0-9._-]+)', lead['HTML内容'])))
-    social_str = f"Facebook: {fb_links[0]}" if fb_links else "未提取到社媒，建议手动检索。"
+    in_links = list(set(re.findall(r'(https?://(?:www\.)?linkedin\.com/company/[a-zA-Z0-9._-]+)', lead['HTML内容'])))
+    ig_links = list(set(re.findall(r'(https?://(?:www\.)?instagram\.com/[a-zA-Z0-9._-]+)', lead['HTML内容'])))
+    
+    social_str = ""
+    if in_links: social_str += f"💼 LinkedIn (查规模): {in_links[0]}\n"
+    if fb_links: social_str += f"📘 Facebook (看门店/活动): {fb_links[0]}\n"
+    if ig_links: social_str += f"📸 Instagram (看产品宣发): {ig_links[0]}\n"
+    if not social_str: social_str = "⚠️ 未在官网提取到主要社交媒体，建议手动搜索其 LinkedIn 验证 B2B 属性。"
+
     meta_desc = soup.find('meta', attrs={'name': 'description'})
-    intro = meta_desc['content'].strip() if meta_desc and meta_desc.get('content') else f"系统分析：该公司为 {country} 本地独立分销商。"
-    return f"### 📊 资深业务员：{lead['公司名']} 客户背景深度调研报告\n**1. 官方网站**：{lead['官网']}\n**2. 公司介绍**：{intro[:300]}...\n**3. 社交媒体与门店**：{social_str}\n**4. 员工联系与职位**：📥 发现邮箱：`{lead['邮箱']}`\n**5. 核心痛点推演**：① 供应链成本倒挂 ② 起订量不灵活 ③ 售后合规风险。\n**6. 商业模式**：经典的 **B2B 区域进口分销 + 独立站直营**。"
+    intro = meta_desc['content'].strip() if meta_desc and meta_desc.get('content') else "未能抓取到 Meta 描述。"
+    
+    return f"### 📊 资深业务员：{lead['公司名']} 客户背景深度调研\n**1. 官方网站**：{lead['官网']} (唯一有效入口)\n**2. 核心社媒矩阵 (二次验证)**：\n{social_str}\n**3. 官网介绍**：{intro[:300]}...\n**4. 关键人触达**：📥 发现邮箱：`{lead['邮箱']}`\n**5. 业务员分析指导**：由于已经过严格的 B2B 正向筛查，该公司极大概率属于区域性进口分销商。建议发送 [强力破冰 - 避开中间商] 模板切入。"
 
 if page == "🔍 获客与开发工作台":
     st.title("🔧 获客与开发工作台 (全能深度版)")
@@ -271,7 +311,8 @@ if page == "🔍 获客与开发工作台":
             queries = [f'{kw} {random.choice(config["role_words"])} {config.get("search_suffix", "")}'.strip() for kw in final_keywords]
             random.shuffle(queries)
             progress_text = st.empty()
-            with st.spinner("深挖中..."):
+            
+            with st.spinner("深挖中，正在进行B2B属性强制验证..."):
                 for q in queries:
                     if len(scored_leads) >= 5: break
                     progress_text.write(f"🔄 正在深挖: `{q}` ({len(scored_leads)}/5)...")
@@ -284,11 +325,21 @@ if page == "🔍 获客与开发工作台":
                             html = requests.get(url, timeout=5, headers={'User-Agent': 'Mozilla/5.0'}).text
                             soup = BeautifulSoup(html, 'html.parser')
                             text = soup.get_text().lower()
-                            if any(x in text for x in CHINA_GEO_BLOCKLIST + STRICT_BUSINESS_BLOCKLIST): continue
+                            
+                            # 1. 严格负向排除（查杀：上市公司、终端门店、重型举升设备等）
+                            if any(x in text for x in CHINA_GEO_BLOCKLIST + STRICT_BUSINESS_BLOCKLIST + IRRELEVANT_INDUSTRIES_BLOCKLIST): 
+                                continue
+                            
+                            # 2. 强效正向验证（二次验证：网页必须包含至少一个 B2B 批发商关键词）
+                            if not any(b2b_kw in text for b2b_kw in B2B_REQUIRED_KEYWORDS):
+                                continue
+                                
                             matched = [kw for kw in final_keywords if kw.lower() in text]
                             if not matched: continue
+                            
                             comp_name = soup.title.string.strip() if soup.title else domain
                             emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
+                            
                             scored_leads.append({"客户ID": f"CUS_{int(time.time())}_{random.randint(100,999)}", "公司名": comp_name[:60], "官网": url, "邮箱": emails[0] if emails else "", "联系方式": " | ".join(emails[:2]) if emails else "表单", "匹配产品": matched[0], "国家": display_country_name, "状态": "未联系", "添加时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "HTML内容": html})
                             seen.add(domain)
                         except: pass
@@ -299,8 +350,8 @@ if page == "🔍 获客与开发工作台":
                 st.session_state.excluded_domains = seen
                 st.session_state.current_page = (len(st.session_state.all_leads) - 1) // 5
                 for l in scored_leads: db.add_client(l)
-                st.success(f"🎉 斩获 {len(scored_leads)} 家全新经销商，已存入 CRM 数据库！")
-            else: st.warning("未发现新线索，请更换关键词重试。")
+                st.success(f"🎉 成功筛选并斩获 {len(scored_leads)} 家全新优质 B2B 经销商，已存入 CRM 数据库！")
+            else: st.warning("未发现符合严格B2B标准的新线索，请尝试更换产品线或重试。")
 
     if st.session_state.all_leads:
         total = len(st.session_state.all_leads)
@@ -323,14 +374,14 @@ if page == "🔍 获客与开发工作台":
                     db.delete_client(lead['客户ID'])
                     st.session_state.all_leads = [l for l in st.session_state.all_leads if l['客户ID'] != lead['客户ID']]
                     st.rerun()
-            st.markdown(f"**官网**: [{lead['官网']}]({lead['官网']}) | **匹配产品**: `{lead['匹配产品']}`")
+            st.markdown(f"**官网**: [{lead['官网']}]({lead['官网']}) | **核心匹配产品**: `{lead['匹配产品']}`")
             
             history_count = len(emails_df[emails_df['收件人'] == lead['邮箱']]) if not emails_df.empty and lead['邮箱'] else 0
             if history_count > 0: st.warning(f"🕒 **联系追踪**: 已对该客户发送过 **{history_count}** 次邮件")
             else: st.success("🆕 **联系追踪**: 暂无该客户的邮件沟通记录。")
 
             if lead['官网'] not in st.session_state.local_reports:
-                if st.button(f"📊 生成 14维度背调档案", key=f"bg_{i}"):
+                if st.button(f"📊 生成深调档案 (官网+社媒)", key=f"bg_{i}"):
                     st.session_state.local_reports[lead['官网']] = local_background_check(lead, lead['国家'])
                     st.rerun()
             if lead['官网'] in st.session_state.local_reports:
