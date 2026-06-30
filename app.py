@@ -28,6 +28,7 @@ class DatabaseManager:
         self.client_cols = ["客户ID", "公司名", "官网", "邮箱", "联系方式", "匹配产品", "国家", "状态", "添加时间"]
         self.email_cols = ["邮件ID", "客户公司", "收件人", "发送时间", "主题", "内容摘要", "状态"]
         self.config_cols = ["配置项", "配置值"] 
+        self.blacklist_cols = ["域名"]  # 新增：永久黑名单机制
         self._init_connection()
 
     def _init_connection(self):
@@ -45,6 +46,8 @@ class DatabaseManager:
                     self.sheet.add_worksheet(title="Emails", rows="1000", cols="20").append_row(self.email_cols)
                 if "Config" not in worksheets:
                     self.sheet.add_worksheet(title="Config", rows="50", cols="5").append_row(self.config_cols)
+                if "Blacklist" not in worksheets: # 新增：云端创建黑名单表
+                    self.sheet.add_worksheet(title="Blacklist", rows="1000", cols="5").append_row(self.blacklist_cols)
                     
                 self.use_gsheets = True
             except Exception as e:
@@ -55,6 +58,7 @@ class DatabaseManager:
             if not os.path.exists("db_clients.csv"): pd.DataFrame(columns=self.client_cols).to_csv("db_clients.csv", index=False)
             if not os.path.exists("db_emails.csv"): pd.DataFrame(columns=self.email_cols).to_csv("db_emails.csv", index=False)
             if not os.path.exists("db_config.csv"): pd.DataFrame(columns=self.config_cols).to_csv("db_config.csv", index=False)
+            if not os.path.exists("db_blacklist.csv"): pd.DataFrame(columns=self.blacklist_cols).to_csv("db_blacklist.csv", index=False)
 
     def get_clients(self):
         if self.use_gsheets:
@@ -70,7 +74,30 @@ class DatabaseManager:
             except: pass
         pd.DataFrame([clean_data]).to_csv("db_clients.csv", mode='a', header=False, index=False)
 
+    def add_to_blacklist(self, domain):
+        """【修复1】将没用/删除的域名拉入永久黑名单"""
+        if not domain: return
+        if self.use_gsheets:
+            try: 
+                self.sheet.worksheet("Blacklist").append_row([domain])
+                return
+            except: pass
+        if os.path.exists("db_blacklist.csv"):
+            try: pd.DataFrame([{"域名": domain}]).to_csv("db_blacklist.csv", mode='a', header=False, index=False)
+            except: pass
+
     def delete_client(self, client_id):
+        """【修复1】删除时，自动提取域名并永远拉黑拉黑"""
+        try:
+            df = self.get_clients()
+            client_row = df[df['客户ID'] == client_id]
+            if not client_row.empty:
+                url = str(client_row.iloc[0].get('官网', '')).strip()
+                if url.startswith('http'):
+                    domain = urlparse(url).netloc.lower()
+                    self.add_to_blacklist(domain) # 自动加入黑名单
+        except: pass
+
         if self.use_gsheets:
             try:
                 worksheet = self.sheet.worksheet("Clients")
@@ -85,14 +112,28 @@ class DatabaseManager:
             except: pass
 
     def get_existing_urls_and_domains(self):
+        """【修复1】搜索时同时排查现有客户和黑名单中的客户"""
         urls, domains = set(), set()
         try:
+            # 1. 现存的客户官网排除
             df = self.get_clients()
             if not df.empty and '官网' in df.columns:
                 for u in df['官网'].dropna():
                     u = str(u).strip()
                     urls.add(u)
                     if u.startswith('http'): domains.add(urlparse(u).netloc.lower())
+            
+            # 2. 读取曾被删除的黑名单域名
+            if self.use_gsheets:
+                try:
+                    bl_records = self.sheet.worksheet("Blacklist").get_all_records()
+                    for r in bl_records: domains.add(str(r.get('域名', '')).strip().lower())
+                except: pass
+            else:
+                if os.path.exists("db_blacklist.csv"):
+                    bl_df = pd.read_csv("db_blacklist.csv")
+                    if '域名' in bl_df.columns:
+                        for d in bl_df['域名'].dropna(): domains.add(str(d).strip().lower())
         except: pass
         return urls, domains
 
@@ -109,6 +150,25 @@ class DatabaseManager:
             try: self.sheet.worksheet("Emails").append_row(list(clean_data.values())); return
             except: pass
         pd.DataFrame([clean_data]).to_csv("db_emails.csv", mode='a', header=False, index=False)
+
+    def update_client_status(self, client_id, new_status):
+        """【修复2】更新客户状态 (发件成功后调用)"""
+        if self.use_gsheets:
+            try:
+                worksheet = self.sheet.worksheet("Clients")
+                cell = worksheet.find(client_id)
+                if cell:
+                    worksheet.update_cell(cell.row, 8, new_status) # 第8列是状态列
+                return
+            except Exception as e: print(f"GSheets 更新状态失败: {e}")
+        
+        if os.path.exists("db_clients.csv"):
+            try:
+                df = pd.read_csv("db_clients.csv")
+                if client_id in df['客户ID'].values:
+                    df.loc[df['客户ID'] == client_id, '状态'] = new_status
+                    df.to_csv("db_clients.csv", index=False)
+            except Exception as e: print(f"本地 CSV 更新状态失败: {e}")
 
     def get_config(self):
         if self.use_gsheets:
@@ -155,20 +215,16 @@ CHINA_GEO_BLOCKLIST = [
     "guangdong", "shenzhen", "guangzhou", "dongguan", "foshan", "zhongshan", "zhuhai", "zhejiang", "ningbo", "hangzhou", "yiwu", "wenzhou", "taizhou", "jinhua", "shaoxing", "jiangsu", "shanghai", "shandong", "qingdao", "jinan", "hebei", "henan", "beijing", "tianjin", "+86 ", "0086", "86-1", "86-0", "made in china", "china mainland", "mainland china", "chinese supplier"
 ]
 
-# 【放宽限制】：去除了 auto repair shop 等词，防止误杀 B2B 供应商的客户群体描述
 STRICT_BUSINESS_BLOCKLIST = [
     "investor relations", "stock symbol", "shareholders", "annual report", "subsidiary of", "listed company", "nasdaq", "nyse", "holdings", "plc", "retail only"
 ]
 
-# 【放宽限制】：保留最基础的非汽车行业屏蔽
 IRRELEVANT_INDUSTRIES_BLOCKLIST = [
     "garden tools", "lawn mower", "woodworking tools", "plumbing tools", "agricultural machinery", "two-post lift", "wheel balancer"
 ]
 
-# 核心 B2B 护城河（只要网页里有这些词，基本就是批发商，保留这个判定）
 B2B_REQUIRED_KEYWORDS = ["wholesale", "distributor", "dealer", "trade account", "become a dealer", "b2b", "mayorista", "distribuidor", "importador", "trade strictly", "stockist", "bulk supply"]
 
-# 【放宽限制】：产品词缩短，去除冷门的长尾修饰，提升搜索召回率（数量）
 BASE_EN_PRODUCTS = {
     "01 仪表与诊断系统": {"search": ["radiator pressure tester", "cylinder compression tester", "automotive diagnostic tool"]}, 
     "02 液体更换/制动工具": {"search": ["brake bleeder kit", "oil extractor tool", "brake caliper wind back tool"]}, 
@@ -189,18 +245,25 @@ COUNTRY_CONFIG = {
     "🇪🇸 西班牙/南美大区": {"region": "es-es", "role_words": ["mayorista", "importador", "distribuidor", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
 }
 
+# ==================== 全新外贸霸气开发信模板 (硬核工厂风) ====================
 EMAIL_TEMPLATES = {
     "en": {
-        "1. 极简钩子 (3句话破冰 - 手机端最高回复率)": "Subject: {company_name} x {core_product} supply\n\nHi team,\n\nAre you open to adding a direct factory line for {core_product} to your catalog this quarter?\n\nWe manufacture these specifically for B2B distributors. By cutting out local trading companies, our partners typically see a 20%+ increase in profit margins.\n\nIf you're open to exploring, I can send a 30-sec video of our production line or a free sample. Worth a quick chat?\n\nBest regards,\n[Your Name]",
-        "2. 痛点暴击 + 子弹图 (直击质量与售后痛点)": "Subject: Defective {core_product} / warranty claims\n\nHi team,\n\nMost auto tool distributors I speak with are frustrated by high return rates on {core_product} from general hardware suppliers.\n\nWe strictly specialize in automotive maintenance tools. Here is what we offer differently:\n- 100% vehicle-match testing before shipment.\n- Zero headache / near-zero return rates for your mechanic clients.\n- Flexible MOQs for trial orders (even 1-2 cartons).\n\nAre you the right person to speak with about upgrading your sourcing?\n\nBest regards,\n[Your Name]",
-        "3. 视觉冲击 (用视频链接代替枯燥文字)": "Subject: Video: Inside our {core_product} factory\n\nHi team,\n\nI know you get a lot of emails, so I'll keep it brief. \n\nI made a quick 40-second video showing exactly how we manufacture and test {core_product} before shipping to our overseas partners:\n👉 [Insert Your YouTube/Google Drive Link Here]\n\nSeeing is believing. I'd love to send a risk-free trial box to your warehouse so you can test the quality yourself. Do you have 5 minutes next week for a brief call?\n\nBest regards,\n[Your Name]",
-        "4. 欲擒故纵 (终极分手信 - 逼迫客户回复)": "Subject: Closing your file - {company_name}\n\nHi,\n\nI've reached out a few times about supplying direct-from-factory {core_product} to improve your margins, but haven't heard back.\n\nUsually, this means you are either locked into a contract with your current supplier, or this isn't your department.\n\nIf you are not interested, just reply 'No' and I will stop following up. If I should speak to someone else, could you kindly point me in their direction?\n\nThanks for your time!\n\nBest regards,\n[Your Name]"
+        "1. 海关数据截胡法 (直击底价/去中间商)": "Subject: Direct Factory Supply: {core_product} for {company_name}\n\nHi [Purchasing Manager/Team],\n\nI noticed {company_name} is actively importing auto tools into your market.\n\nMany distributors unknowingly buy {core_product} through 2nd or 3rd tier trading companies in China, losing at least 15-25% in profit margins. \n\nWe are the true source factory behind several top tool brands. By working with us directly, you get:\n- 100% Direct factory pricing (No middleman markup)\n- Strict QC & Fast OEM branding (Your Logo)\n\nCan I send you our direct-factory price list (Catalog) for {core_product} to compare with your current supplier?\n\nBest regards,\n[Your Name]",
+        
+        "2. 终端退货暴击法 (主打工业级/抗造品质)": "Subject: Stopping mechanic complaints about {core_product}\n\nHi team at {company_name},\n\nThe #1 complaint we hear from tool distributors is that cheap {core_product} breaks after a few uses, ruining your reputation with auto repair shops.\n\nWe solved this. Our {core_product} is forged with industrial-grade materials and strictly stress-tested for professional garage use. \n\n- Zero return rate from our current EU/US partners.\n- Reliable factory warranty.\n\nI’ve attached a quick video showing our stress test. Would you be open to receiving a trial sample to test the quality in your own warehouse?\n\nBest regards,\n[Your Name]",
+        
+        "3. 新品独家市场法 (制造稀缺与FOMO)": "Subject: New arrival: Upgraded {core_product} (Distributor Pricing)\n\nHi team,\n\nWe just launched an upgraded version of our {core_product}, designed specifically for modern vehicle models.\n\nWe are currently looking for 2-3 reliable distribution partners in your region to introduce this profitable line. \n\nWhy it sells fast:\n- Upgraded design saving mechanics 30% operation time.\n- Highly competitive wholesale margins for early partners.\n\nSince you are a leading tool supplier locally, you are on our top contact list. Do you have 5 minutes this week to see if we are a good fit?\n\nBest regards,\n[Your Name]",
+        
+        "4. 单刀直入算账法 (极简比价/要回复)": "Subject: Cut your {core_product} costs by 20%\n\nHi,\n\nI’ll get straight to the point.\n\nIf you are currently buying {core_product} from general hardware traders, you are likely overpaying. We are the source manufacturer. \n\nSwitching your {core_product} orders to us means:\n1. 20%+ better pricing immediately.\n2. Direct factory warranty and support.\n3. Custom packaging with YOUR brand.\n\nReply \"Yes\" and I will send you our B2B catalog and wholesale price list right now. \n\nBest regards,\n[Your Name]"
     },
     "es": {
-        "1. 极简钩子 (3句话破冰 - 手机端最高回复率)": "Asunto: {company_name} x suministro de {core_product}\n\nHola equipo,\n\n¿Están abiertos a añadir una línea directa de fábrica de {core_product} a su catálogo este trimestre?\n\nFabricamos específicamente para distribuidores B2B. Al eliminar a las empresas comerciales intermediarias, nuestros socios suelen ver un aumento del 20%+ en sus márgenes de beneficio.\n\nSi están abiertos a explorar, puedo enviar un video de 30 segundos de nuestra producción o una muestra gratuita. ¿Valdría la pena una breve charla?\n\nSaludos,\n[Tu Nombre]",
-        "2. 痛点暴击 + 子弹图 (直击质量与售后痛点)": "Asunto: Devoluciones y garantías en {core_product}\n\nHola equipo,\n\nMuchos distribuidores se frustran por las altas tasas de devolución de {core_product} cuando compran a proveedores generales.\n\nNos especializamos en herramientas automotrices. Esto es lo que ofrecemos:\n- Pruebas 100% compatibles con vehículos antes del envío.\n- Cero dolores de cabeza para sus clientes mecánicos.\n- MOQ flexible para pedidos de prueba (incluso 1-2 cajas).\n\n¿Es usted la persona adecuada para hablar sobre mejorar su suministro?\n\nSaludos,\n[Tu Nombre]",
-        "3. 视觉冲击 (用视频链接代替枯燥文字)": "Asunto: Video: Dentro de nuestra fábrica de {core_product}\n\nHola equipo,\n\nSé que reciben muchos correos, así que seré breve.\n\nHice un video de 40 segundos que muestra exactamente cómo fabricamos y probamos {core_product} antes de enviarlo a nuestros socios:\n👉 [Inserta tu enlace de YouTube/Drive aquí]\n\nVer para creer. Me encantaría enviar una caja de prueba sin riesgo a su almacén. ¿Tienen 5 minutos la próxima semana para una breve llamada?\n\nSaludos,\n[Tu Nombre]",
-        "4. 欲擒故纵 (终极分手信 - 逼迫客户回复)": "Asunto: Cerrando su expediente - {company_name}\n\nHola,\n\nMe he comunicado varias veces sobre el suministro directo de {core_product} para mejorar sus márgenes, pero no he recibido respuesta.\n\nPor lo general, esto significa que ya tienen un contrato cerrado con su proveedor actual o que este no es su departamento.\n\nSi no están interesados, solo responda 'No' y dejaré de insistir. Si debo hablar con otra persona, ¿podría indicarme quién es?\n\n¡Gracias por su tiempo!\n\nSaludos,\n[Tu Nombre]"
+        "1. 海关数据截胡法 (直击底价/去中间商)": "Asunto: Suministro directo de fábrica: {core_product} para {company_name}\n\nHola [Gerente de Compras/Equipo],\n\nNoté que {company_name} importa activamente herramientas automotrices en su mercado.\n\nMuchos distribuidores compran {core_product} a través de empresas intermediarias en China, perdiendo al menos un 15-25% de margen. \n\nSomos la fábrica de origen real detrás de varias marcas principales. Al trabajar directamente con nosotros, obtienen:\n- Precios 100% directos de fábrica (Sin intermediarios)\n- Estricto control de calidad y marca OEM (Su Logotipo)\n\n¿Puedo enviarles nuestra lista de precios directos de {core_product} para que comparen con su proveedor actual?\n\nSaludos,\n[Tu Nombre]",
+        
+        "2. 终端退货暴击法 (主打工业级/抗造品质)": "Asunto: Evite quejas de mecánicos sobre {core_product}\n\nHola equipo de {company_name},\n\nLa queja #1 de los distribuidores es que el {core_product} barato se rompe rápido, arruinando su reputación con los talleres mecánicos.\n\nHemos resuelto esto. Nuestro {core_product} está forjado con materiales de grado industrial y probado estrictamente para uso profesional.\n\n- Tasa de devolución cero de nuestros socios actuales.\n- Garantía de fábrica confiable.\n\nHe adjuntado un breve video mostrando nuestras pruebas. ¿Estarían abiertos a recibir una muestra de prueba para verificar la calidad?\n\nSaludos,\n[Tu Nombre]",
+        
+        "3. 新品独家市场法 (制造稀缺与FOMO)": "Asunto: Nueva llegada: {core_product} mejorado (Precios de Distribuidor)\n\nHola equipo,\n\nAcabamos de lanzar una versión mejorada de nuestro {core_product}, diseñada para vehículos modernos.\n\nActualmente buscamos 2-3 socios distribuidores confiables en su región para introducir esta línea rentable.\n\nPor qué se vende rápido:\n- Diseño mejorado que ahorra a los mecánicos un 30% de tiempo.\n- Márgenes mayoristas altamente competitivos para los primeros socios.\n\nComo son un proveedor líder local, están en nuestra lista principal. ¿Tienen 5 minutos esta semana para hablar?\n\nSaludos,\n[Tu Nombre]",
+        
+        "4. 单刀直入算账法 (极简比价/要回复)": "Asunto: Reduzca sus costos de {core_product} en un 20%\n\nHola,\n\nIré directo al grano.\n\nSi compran {core_product} a comerciantes generales, es probable que estén pagando de más. Somos el fabricante de origen.\n\nCambiar sus pedidos a nosotros significa:\n1. 20%+ mejores precios inmediatamente.\n2. Garantía y soporte directo de fábrica.\n3. Empaque personalizado con SU marca.\n\nResponda \"Sí\" y le enviaré nuestro catálogo B2B y lista de precios mayoristas ahora mismo.\n\nSaludos,\n[Tu Nombre]"
     }
 }
 
@@ -266,7 +329,6 @@ with st.sidebar:
         if manual_keywords.strip(): final_keywords.extend([k.strip() for k in manual_keywords.splitlines() if k.strip()])
         final_keywords = list(set(final_keywords))
 
-# 在搜索引擎底层排除超级零售平台（去除了引起误杀的 -repair）
 def duckduckgo_search(query, region, max_results=20):
     search_constraint = "-amazon -aliexpress -vevor -ebay -walmart"
     for q in [f'{query} {search_constraint}', query]:
@@ -364,7 +426,9 @@ if page == "🔍 获客与开发工作台":
                     db.delete_client(lead['客户ID'])
                     st.session_state.all_leads = [l for l in st.session_state.all_leads if l['客户ID'] != lead['客户ID']]
                     st.rerun()
-            st.markdown(f"**官网**: [{lead['官网']}]({lead['官网']}) | **核心匹配产品**: `{lead['匹配产品']}`")
+            
+            # 这里增加了状态的展示
+            st.markdown(f"**官网**: [{lead['官网']}]({lead['官网']}) | **核心匹配产品**: `{lead['匹配产品']}` | **当前状态**: `{lead.get('状态', '未联系')}`")
             
             history_count = len(emails_df[emails_df['收件人'] == lead['邮箱']]) if not emails_df.empty and lead['邮箱'] else 0
             
@@ -378,21 +442,22 @@ if page == "🔍 获客与开发工作台":
             with st.expander("✉️ 展开开发信工作台 (撰写与发送)", expanded=True):
                 lang = "es" if "Mexico" in lead['国家'] or "西班牙" in lead['国家'] else "en"
                 c_ang, c_to = st.columns([2, 1])
-                with c_ang: angle = st.selectbox("1️⃣ 选择开发策略 (PAS模型)", list(EMAIL_TEMPLATES[lang].keys()), index=2 if history_count==1 else (3 if history_count>=2 else 0), key=f"ang_{i}")
+                with c_ang: angle = st.selectbox("1️⃣ 选择霸气外贸开发策略", list(EMAIL_TEMPLATES[lang].keys()), index=0, key=f"ang_{i}")
                 with c_to: target_email = st.text_input("收件人", value=lead['邮箱'], key=f"to_{i}")
                 
                 tpl = EMAIL_TEMPLATES[lang][angle].split("\n\n", 1)
-                # 使用 _{angle} 动态绑定，确保切换模板必定刷新！
                 mail_sub = st.text_input("邮件主题", value=tpl[0].replace("Subject: ", "").replace("Asunto: ", "").format(company_name=lead['公司名'], core_product=lead['匹配产品']), key=f"sub_{i}_{angle}")
-                mail_body = st.text_area("邮件正文 (可自由修改)", value=tpl[1].format(company_name=lead['公司名'], core_product=lead['匹配产品']), height=200, key=f"body_{i}_{angle}")
+                mail_body = st.text_area("邮件正文 (可自由修改)", value=tpl[1].format(company_name=lead['公司名'], core_product=lead['匹配产品']), height=280, key=f"body_{i}_{angle}")
                 
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     if st.button("🚀 立即 SMTP 发送", key=f"snd_{i}", type="primary"):
                         success, msg = send_smtp_email(target_email, mail_sub, mail_body)
                         if success:
-                            st.success("✅ 邮件发送成功！")
+                            st.success("✅ 邮件发送成功！状态已自动更新为[已联系]")
                             db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "...", "状态": "成功"})
+                            db.update_client_status(lead['客户ID'], "已联系") # 【修复2】更新数据库状态
+                            lead['状态'] = "已联系" # 更新当前页面缓存状态
                             st.rerun()
                         else: st.error(msg)
             st.markdown("---")
@@ -403,26 +468,24 @@ elif page == "🗃️ 客户 CRM 数据库":
     
     if not df.empty:
         # =========================================================
-        # 【全新功能】：第一步一键快捷清理台（秒杀旧数据）
+        # 第一步一键快捷清理台（秒杀旧数据）
         # =========================================================
         st.markdown("### 🗑️ 快捷清理台 (第一步直接删除)")
-        st.caption("无需搜索查询，直接在下拉框选择（或输入）公司名，点击右侧按钮即可彻底删除。")
+        st.caption("注：删除后该客户将被加入【永久黑名单】，后续挖掘永不出现！")
         
         c_sel, c_btn = st.columns([4, 1])
         with c_sel:
-            # 拼接出一个供你识别的下拉列表
             client_options = [f"{row['公司名']} | {row['匹配产品']} ({row['客户ID']})" for _, row in df.iterrows()]
             selected_to_delete = st.selectbox("👇 选择你要清理的无效客户：", client_options)
             
         with c_btn:
-            st.write("") # 占位符，用来和左侧的下拉框对齐
+            st.write("") 
             st.write("")
-            if st.button("🚨 一键彻底删除", type="primary", use_container_width=True):
+            if st.button("🚨 一键彻底拉黑删除", type="primary", use_container_width=True):
                 if selected_to_delete:
-                    # 从字符串的末尾提取出客户ID（也就是括号里的内容）
                     ext_id = selected_to_delete.split("(")[-1].replace(")", "")
                     db.delete_client(ext_id)
-                    st.success("删除成功！正在刷新...")
+                    st.success("删除成功并已加入防重复黑名单！正在刷新...")
                     time.sleep(0.5)
                     st.rerun()
         st.markdown("---")
@@ -446,23 +509,22 @@ elif page == "🗃️ 客户 CRM 数据库":
             for i, row in df_filtered.iterrows():
                 lead = {k: ("" if pd.isna(v) else v) for k, v in row.to_dict().items()}
                 st.markdown(f"#### 🎯 {lead.get('公司名', '未知公司')}")
-                st.markdown(f"**官网**: {lead.get('官网', '')} | **主营标签**: `{lead.get('匹配产品', 'B2B Auto Tools')}`")
+                st.markdown(f"**官网**: {lead.get('官网', '')} | **主营标签**: `{lead.get('匹配产品', 'B2B Auto Tools')}` | **状态**: `{lead.get('状态', '未联系')}`")
 
                 history_count = len(emails_df[emails_df['收件人'] == lead.get('邮箱')]) if not emails_df.empty and lead.get('邮箱') else 0
 
                 with st.expander("✉️ 唤醒开发信发送台", expanded=True):
                     lang = "es" if "Mexico" in str(lead.get('国家','')) or "西班牙" in str(lead.get('国家','')) else "en"
                     c_ang, c_to = st.columns([2, 1])
-                    with c_ang: angle = st.selectbox("1️⃣ 选择冷邮件开发策略", list(EMAIL_TEMPLATES[lang].keys()), index=0, key=f"crm_ang_{i}")
+                    with c_ang: angle = st.selectbox("1️⃣ 选择霸气外贸开发策略", list(EMAIL_TEMPLATES[lang].keys()), index=0, key=f"crm_ang_{i}")
                     with c_to: target_email = st.text_input("收件人 (可自由修改替换)", value=str(lead.get('邮箱', '')), key=f"crm_to_{i}")
                     
                     tpl = EMAIL_TEMPLATES[lang][angle].split("\n\n", 1)
                     sub_fmt = tpl[0].replace("Subject: ", "").replace("Asunto: ", "").format(company_name=lead.get('公司名',''), core_product=lead.get('匹配产品','Auto Tools'))
                     body_fmt = tpl[1].format(company_name=lead.get('公司名',''), core_product=lead.get('匹配产品','Auto Tools'))
                     
-                    # 同样使用动态 key 解决 CRM 界面的模板切换失效问题
                     mail_sub = st.text_input("邮件主题", value=sub_fmt, key=f"crm_sub_{i}_{angle}")
-                    mail_body = st.text_area("邮件正文", value=body_fmt, height=220, key=f"crm_body_{i}_{angle}")
+                    mail_body = st.text_area("邮件正文", value=body_fmt, height=280, key=f"crm_body_{i}_{angle}")
                     
                     if st.button("🚀 立即 SMTP 发送", key=f"crm_snd_{i}", type="primary"):
                         if not target_email.strip():
@@ -470,8 +532,9 @@ elif page == "🗃️ 客户 CRM 数据库":
                         else:
                             success, msg = send_smtp_email(target_email, mail_sub, mail_body)
                             if success:
-                                st.success("✅ 邮件发送成功！")
+                                st.success("✅ 邮件发送成功！客户状态已全自动更新为[已联系]")
                                 db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead.get('公司名',''), "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "...", "状态": "成功"})
+                                db.update_client_status(lead.get('客户ID'), "已联系") # 【修复2】更新数据库状态
                                 st.rerun()
                             else: st.error(msg)
             st.markdown("---")
