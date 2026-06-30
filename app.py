@@ -28,7 +28,7 @@ class DatabaseManager:
         self.client_cols = ["客户ID", "公司名", "官网", "邮箱", "联系方式", "匹配产品", "国家", "状态", "添加时间"]
         self.email_cols = ["邮件ID", "客户公司", "收件人", "发送时间", "主题", "内容摘要", "状态"]
         self.config_cols = ["配置项", "配置值"] 
-        self.blacklist_cols = ["域名"]  # 新增：永久黑名单机制
+        self.blacklist_cols = ["域名"]  
         self._init_connection()
 
     def _init_connection(self):
@@ -46,7 +46,7 @@ class DatabaseManager:
                     self.sheet.add_worksheet(title="Emails", rows="1000", cols="20").append_row(self.email_cols)
                 if "Config" not in worksheets:
                     self.sheet.add_worksheet(title="Config", rows="50", cols="5").append_row(self.config_cols)
-                if "Blacklist" not in worksheets: # 新增：云端创建黑名单表
+                if "Blacklist" not in worksheets: 
                     self.sheet.add_worksheet(title="Blacklist", rows="1000", cols="5").append_row(self.blacklist_cols)
                     
                 self.use_gsheets = True
@@ -75,7 +75,6 @@ class DatabaseManager:
         pd.DataFrame([clean_data]).to_csv("db_clients.csv", mode='a', header=False, index=False)
 
     def add_to_blacklist(self, domain):
-        """【修复1】将没用/删除的域名拉入永久黑名单"""
         if not domain: return
         if self.use_gsheets:
             try: 
@@ -87,7 +86,6 @@ class DatabaseManager:
             except: pass
 
     def delete_client(self, client_id):
-        """【修复1】删除时，自动提取域名并永远拉黑拉黑"""
         try:
             df = self.get_clients()
             client_row = df[df['客户ID'] == client_id]
@@ -95,7 +93,7 @@ class DatabaseManager:
                 url = str(client_row.iloc[0].get('官网', '')).strip()
                 if url.startswith('http'):
                     domain = urlparse(url).netloc.lower()
-                    self.add_to_blacklist(domain) # 自动加入黑名单
+                    self.add_to_blacklist(domain) 
         except: pass
 
         if self.use_gsheets:
@@ -112,10 +110,8 @@ class DatabaseManager:
             except: pass
 
     def get_existing_urls_and_domains(self):
-        """【修复1】搜索时同时排查现有客户和黑名单中的客户"""
         urls, domains = set(), set()
         try:
-            # 1. 现存的客户官网排除
             df = self.get_clients()
             if not df.empty and '官网' in df.columns:
                 for u in df['官网'].dropna():
@@ -123,7 +119,6 @@ class DatabaseManager:
                     urls.add(u)
                     if u.startswith('http'): domains.add(urlparse(u).netloc.lower())
             
-            # 2. 读取曾被删除的黑名单域名
             if self.use_gsheets:
                 try:
                     bl_records = self.sheet.worksheet("Blacklist").get_all_records()
@@ -152,13 +147,12 @@ class DatabaseManager:
         pd.DataFrame([clean_data]).to_csv("db_emails.csv", mode='a', header=False, index=False)
 
     def update_client_status(self, client_id, new_status):
-        """【修复2】更新客户状态 (发件成功后调用)"""
         if self.use_gsheets:
             try:
                 worksheet = self.sheet.worksheet("Clients")
                 cell = worksheet.find(client_id)
                 if cell:
-                    worksheet.update_cell(cell.row, 8, new_status) # 第8列是状态列
+                    worksheet.update_cell(cell.row, 8, new_status) 
                 return
             except Exception as e: print(f"GSheets 更新状态失败: {e}")
         
@@ -206,7 +200,7 @@ if 'all_leads' not in st.session_state:
     st.session_state.local_reports = {}
     st.session_state.current_page = 0
 
-# ==================== 黑名单与配置库 (黄金平衡版) ====================
+# ==================== 黑名单与配置库 ====================
 PLATFORM_BLOCKLIST = [
     "iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", "made-in-china.", "alibaba.", "aliexpress.", "indiamart.", "tradekey.", "hktdc.", "amazon.", "ebay.", "walmart.", "shopee.", "lazada.", "etsy.", "wayfair.", "temu.", "shein.", "trustpilot.", "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.", "grainger.", "fastenal.", "mscdirect.", "homedepot.", "lowes.", "menards.", "target.", "costco.", "vevor.", "harborfreight.", "prices.", ".cn", ".com.cn"
 ]
@@ -223,7 +217,13 @@ IRRELEVANT_INDUSTRIES_BLOCKLIST = [
     "garden tools", "lawn mower", "woodworking tools", "plumbing tools", "agricultural machinery", "two-post lift", "wheel balancer"
 ]
 
-B2B_REQUIRED_KEYWORDS = ["wholesale", "distributor", "dealer", "trade account", "become a dealer", "b2b", "mayorista", "distribuidor", "importador", "trade strictly", "stockist", "bulk supply"]
+# 【火力升级】：扩充 B2B 验证词库，防止严格拦截错杀潜在好客户
+B2B_REQUIRED_KEYWORDS = [
+    "wholesale", "distributor", "dealer", "trade account", "become a dealer", 
+    "b2b", "mayorista", "distribuidor", "importador", "trade strictly", 
+    "stockist", "bulk supply", "supplier", "import", "distribution", "agencies", 
+    "trade inquiries", "wholesale account"
+]
 
 BASE_EN_PRODUCTS = {
     "01 仪表与诊断系统": {"search": ["radiator pressure tester", "cylinder compression tester", "automotive diagnostic tool"]}, 
@@ -245,7 +245,7 @@ COUNTRY_CONFIG = {
     "🇪🇸 西班牙/南美大区": {"region": "es-es", "role_words": ["mayorista", "importador", "distribuidor", "proveedor"], "product_lines": BASE_ES_PRODUCTS},
 }
 
-# ==================== 全新外贸霸气开发信模板 (硬核工厂风) ====================
+# ==================== 外贸霸气开发信模板 ====================
 EMAIL_TEMPLATES = {
     "en": {
         "1. 海关数据截胡法 (直击底价/去中间商)": "Subject: Direct Factory Supply: {core_product} for {company_name}\n\nHi [Purchasing Manager/Team],\n\nI noticed {company_name} is actively importing auto tools into your market.\n\nMany distributors unknowingly buy {core_product} through 2nd or 3rd tier trading companies in China, losing at least 15-25% in profit margins. \n\nWe are the true source factory behind several top tool brands. By working with us directly, you get:\n- 100% Direct factory pricing (No middleman markup)\n- Strict QC & Fast OEM branding (Your Logo)\n\nCan I send you our direct-factory price list (Catalog) for {core_product} to compare with your current supplier?\n\nBest regards,\n[Your Name]",
@@ -365,21 +365,32 @@ if page == "🔍 获客与开发工作台":
             scored_leads = []
             db_existing_urls, db_existing_domains = db.get_existing_urls_and_domains()
             seen = st.session_state.excluded_domains.copy() | db_existing_domains
-            queries = [f'{kw} {random.choice(config["role_words"])} {config.get("search_suffix", "")}'.strip() for kw in final_keywords]
+            
+            # 【火力升级1】：生成所有关键词和角色词的组合，极大扩充搜索库，不再只随机抽查1个
+            queries = []
+            for kw in final_keywords:
+                for role in config["role_words"]:
+                    suffix = config.get("search_suffix", "")
+                    queries.append(f'{kw} {role} {suffix}'.strip())
             random.shuffle(queries)
+            
             progress_text = st.empty()
             
-            with st.spinner("深挖中，正在进行灵活的 B2B 属性验证..."):
+            with st.spinner("🚀 扩大搜索范围深挖中，此过程可能需要 1-3 分钟..."):
                 for q in queries:
                     if len(scored_leads) >= 5: break
-                    progress_text.write(f"🔄 正在深挖: `{q}` ({len(scored_leads)}/5)...")
-                    urls = duckduckgo_search(q, region=config.get("region", "wt-wt"), max_results=15)
+                    progress_text.write(f"🔄 正在深挖组合: `{q}` (已斩获 {len(scored_leads)}/5)...")
+                    
+                    # 【火力升级2】：max_results 搜索深度从 15 个提升至 60 个结果
+                    urls = duckduckgo_search(q, region=config.get("region", "wt-wt"), max_results=60) 
+                    
                     for url in urls:
                         if len(scored_leads) >= 5: break
                         domain = urlparse(url).netloc.lower()
                         if url in db_existing_urls or domain in seen or any(b in domain for b in PLATFORM_BLOCKLIST): continue
                         try:
-                            html = requests.get(url, timeout=5, headers={'User-Agent': 'Mozilla/5.0'}).text
+                            # 【火力升级3】：放宽爬虫等待时间至 10 秒，防止海外本土站打开慢导致被跳过错杀
+                            html = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'}).text
                             soup = BeautifulSoup(html, 'html.parser')
                             text = soup.get_text().lower()
                             
@@ -395,7 +406,7 @@ if page == "🔍 获客与开发工作台":
                             scored_leads.append({"客户ID": f"CUS_{int(time.time())}_{random.randint(100,999)}", "公司名": comp_name[:60], "官网": url, "邮箱": emails[0] if emails else "", "联系方式": " | ".join(emails[:2]) if emails else "表单", "匹配产品": matched[0], "国家": display_country_name, "状态": "未联系", "添加时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "HTML内容": html})
                             seen.add(domain)
                         except: pass
-                    time.sleep(1)
+                    time.sleep(1) # 防止搜太快被 DuckDuckGo 封锁
             progress_text.empty()
             if scored_leads:
                 st.session_state.all_leads.extend(scored_leads)
@@ -427,7 +438,6 @@ if page == "🔍 获客与开发工作台":
                     st.session_state.all_leads = [l for l in st.session_state.all_leads if l['客户ID'] != lead['客户ID']]
                     st.rerun()
             
-            # 这里增加了状态的展示
             st.markdown(f"**官网**: [{lead['官网']}]({lead['官网']}) | **核心匹配产品**: `{lead['匹配产品']}` | **当前状态**: `{lead.get('状态', '未联系')}`")
             
             history_count = len(emails_df[emails_df['收件人'] == lead['邮箱']]) if not emails_df.empty and lead['邮箱'] else 0
@@ -456,8 +466,8 @@ if page == "🔍 获客与开发工作台":
                         if success:
                             st.success("✅ 邮件发送成功！状态已自动更新为[已联系]")
                             db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead['公司名'], "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "...", "状态": "成功"})
-                            db.update_client_status(lead['客户ID'], "已联系") # 【修复2】更新数据库状态
-                            lead['状态'] = "已联系" # 更新当前页面缓存状态
+                            db.update_client_status(lead['客户ID'], "已联系") 
+                            lead['状态'] = "已联系" 
                             st.rerun()
                         else: st.error(msg)
             st.markdown("---")
@@ -467,9 +477,6 @@ elif page == "🗃️ 客户 CRM 数据库":
     df = db.get_clients()
     
     if not df.empty:
-        # =========================================================
-        # 第一步一键快捷清理台（秒杀旧数据）
-        # =========================================================
         st.markdown("### 🗑️ 快捷清理台 (第一步直接删除)")
         st.caption("注：删除后该客户将被加入【永久黑名单】，后续挖掘永不出现！")
         
@@ -490,9 +497,6 @@ elif page == "🗃️ 客户 CRM 数据库":
                     st.rerun()
         st.markdown("---")
         
-        # =========================================================
-        # 下方保留：客户查询与二次发件工作台
-        # =========================================================
         st.info("💡 搜索框输入公司名，可唤醒该客户的【专属开发信发送台】。")
         search = st.text_input("🔍 搜索公司名进行二次跟进 (支持模糊搜索)")
         
@@ -534,7 +538,7 @@ elif page == "🗃️ 客户 CRM 数据库":
                             if success:
                                 st.success("✅ 邮件发送成功！客户状态已全自动更新为[已联系]")
                                 db.log_email({"邮件ID": f"MAIL_{int(time.time())}", "客户公司": lead.get('公司名',''), "收件人": target_email, "发送时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "主题": mail_sub, "内容摘要": "...", "状态": "成功"})
-                                db.update_client_status(lead.get('客户ID'), "已联系") # 【修复2】更新数据库状态
+                                db.update_client_status(lead.get('客户ID'), "已联系") 
                                 st.rerun()
                             else: st.error(msg)
             st.markdown("---")
