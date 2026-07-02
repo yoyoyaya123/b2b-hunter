@@ -8,6 +8,7 @@ import json
 import os
 import datetime
 import smtplib
+import concurrent.futures
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from urllib.parse import urlparse
@@ -201,23 +202,50 @@ if 'all_leads' not in st.session_state:
     st.session_state.current_page = 0
 
 # ==================== 黑名单与配置库 ====================
+# 1. 扩充：B2B平台、企业黄页、电商零售 域名黑名单（直接从 URL 拦截）
 PLATFORM_BLOCKLIST = [
-    "iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", "made-in-china.", "alibaba.", "aliexpress.", "indiamart.", "tradekey.", "hktdc.", "amazon.", "ebay.", "walmart.", "shopee.", "lazada.", "etsy.", "wayfair.", "temu.", "shein.", "trustpilot.", "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.", "grainger.", "fastenal.", "mscdirect.", "homedepot.", "lowes.", "menards.", "target.", "costco.", "vevor.", "harborfreight.", "prices.", ".cn", ".com.cn"
+    "iqsdirectory.", "directory.", "yellowpages.", "thomasnet.", "kompass.", "europages.", 
+    "yelp.", "zoominfo.", "dnb.", "manta.", "crunchbase.", "trade.", "b2b.", "globalsources.", 
+    "made-in-china.", "alibaba.", "aliexpress.", "indiamart.", "tradekey.", "hktdc.", 
+    "amazon.", "ebay.", "walmart.", "shopee.", "lazada.", "etsy.", "wayfair.", "temu.", "shein.", 
+    "trustpilot.", "autozone.", "oreillyauto.", "napaonline.", "advanceautoparts.", "halfords.", 
+    "grainger.", "fastenal.", "mscdirect.", "homedepot.", "lowes.", "menards.", "target.", 
+    "costco.", "vevor.", "harborfreight.", "prices.", ".cn", ".com.cn",
+    "globalspec.", "solostocks.", "tradeindia.", "ec21.", "ecplaza.", "dhgate.", "tradekorea.",
+    "thomasglobal.", "macraesbluebook.", "whois.", "bloomberg.", "forbes.", "similarweb.",
+    "apollo.io", "rocketreach.", "lusha.", "glassdoor.", "bizstanding.", "cylex.", "mapquest.", 
+    "bbb.org", "chamberofcommerce.", "opendi."
 ]
 
+# 2. 防国内同行与工厂黑名单
 CHINA_GEO_BLOCKLIST = [
-    "guangdong", "shenzhen", "guangzhou", "dongguan", "foshan", "zhongshan", "zhuhai", "zhejiang", "ningbo", "hangzhou", "yiwu", "wenzhou", "taizhou", "jinhua", "shaoxing", "jiangsu", "shanghai", "shandong", "qingdao", "jinan", "hebei", "henan", "beijing", "tianjin", "+86 ", "0086", "86-1", "86-0", "made in china", "china mainland", "mainland china", "chinese supplier"
+    "guangdong", "shenzhen", "guangzhou", "dongguan", "foshan", "zhongshan", "zhuhai", 
+    "zhejiang", "ningbo", "hangzhou", "yiwu", "wenzhou", "taizhou", "jinhua", "shaoxing", 
+    "jiangsu", "shanghai", "shandong", "qingdao", "jinan", "hebei", "henan", "beijing", 
+    "tianjin", "+86 ", "0086", "86-1", "86-0", "made in china", "china mainland", 
+    "mainland china", "chinese supplier", "trading company", "export company", 
+    "fob price", "payment terms: t/t", "port of loading"
 ]
 
+# 3. 业务过滤（排除非目标对象）
 STRICT_BUSINESS_BLOCKLIST = [
-    "investor relations", "stock symbol", "shareholders", "annual report", "subsidiary of", "listed company", "nasdaq", "nyse", "holdings", "plc", "retail only"
+    "investor relations", "stock symbol", "shareholders", "annual report", 
+    "subsidiary of", "listed company", "nasdaq", "nyse", "holdings", "plc", "retail only"
 ]
 
+# 4. 非相关行业过滤
 IRRELEVANT_INDUSTRIES_BLOCKLIST = [
-    "garden tools", "lawn mower", "woodworking tools", "plumbing tools", "agricultural machinery", "two-post lift", "wheel balancer"
+    "garden tools", "lawn mower", "woodworking tools", "plumbing tools", 
+    "agricultural machinery", "two-post lift", "wheel balancer"
 ]
 
-# 【火力升级】：扩充 B2B 验证词库，防止严格拦截错杀潜在好客户
+# 5. B2B平台特征词拦截（网页正文过滤）
+DIRECTORY_PAGE_BLOCKLIST = [
+    "b2b marketplace", "supplier directory", "gold supplier", "verified supplier", 
+    "contact supplier", "premium membership", "wholesale marketplace", "company directory", 
+    "search suppliers", "log in to contact", "business directory", "find a supplier"
+]
+
 B2B_REQUIRED_KEYWORDS = [
     "wholesale", "distributor", "dealer", "trade account", "become a dealer", 
     "b2b", "mayorista", "distribuidor", "importador", "trade strictly", 
@@ -329,14 +357,16 @@ with st.sidebar:
         if manual_keywords.strip(): final_keywords.extend([k.strip() for k in manual_keywords.splitlines() if k.strip()])
         final_keywords = list(set(final_keywords))
 
-def duckduckgo_search(query, region, max_results=20):
-    search_constraint = "-amazon -aliexpress -vevor -ebay -walmart"
+def duckduckgo_search(query, region, max_results=40):
+    # 【优化项】：缩减否定词汇，防止引起 DuckDuckGo 搜索请求出错或返回 0 结果
+    search_constraint = "-amazon -alibaba -directory -yellowpages"
     for q in [f'{query} {search_constraint}', query]:
-        for backend in ['lite', 'html', 'api']:
+        for backend in ['html', 'lite', 'api']:
             try:
                 results = []
                 with DDGS() as ddgs:
-                    for r in ddgs.text(q, region=region, backend=backend, max_results=max_results): results.append(r['href'])
+                    for r in ddgs.text(q, region=region, backend=backend, max_results=max_results): 
+                        results.append(r['href'])
                 if results: return results
             except: continue
     return []
@@ -358,15 +388,17 @@ def local_background_check(lead, country):
     return f"### 📊 资深业务员：{lead['公司名']} 客户背景深度调研\n**1. 官方网站**：{lead['官网']}\n**2. 核心社媒矩阵**：\n{social_str}\n**3. 官网介绍**：{intro[:300]}...\n**4. 关键人触达**：📥 发现邮箱：`{lead['邮箱']}`"
 
 if page == "🔍 获客与开发工作台":
-    st.title("🔧 获客与开发工作台 (精准强控版)")
-    if st.button(f"🔍 强力深挖 5 家 【{display_country_name}】 顶级经销商", type="primary"):
-        if not final_keywords: st.error("请先选择产品线！")
+    st.title("🔧 获客与开发工作台 (多线程精准强控版)")
+    
+    if st.button(f"🔍 强力并发深挖 10 家 【{display_country_name}】 本地经销商", type="primary"):
+        if not final_keywords: 
+            st.error("请先选择产品线！")
         else:
+            target_leads = 10 
             scored_leads = []
             db_existing_urls, db_existing_domains = db.get_existing_urls_and_domains()
             seen = st.session_state.excluded_domains.copy() | db_existing_domains
             
-            # 【火力升级1】：生成所有关键词和角色词的组合，极大扩充搜索库，不再只随机抽查1个
             queries = []
             for kw in final_keywords:
                 for role in config["role_words"]:
@@ -375,46 +407,97 @@ if page == "🔍 获客与开发工作台":
             random.shuffle(queries)
             
             progress_text = st.empty()
+            progress_bar = st.progress(0)
             
-            with st.spinner("🚀 扩大搜索范围深挖中，此过程可能需要 1-3 分钟..."):
-                for q in queries:
-                    if len(scored_leads) >= 5: break
-                    progress_text.write(f"🔄 正在深挖组合: `{q}` (已斩获 {len(scored_leads)}/5)...")
+            # --- 💡 核心单次 URL 评估函数 ---
+            def evaluate_url(url):
+                domain = urlparse(url).netloc.lower()
+                if url in db_existing_urls or domain in seen or any(b in domain for b in PLATFORM_BLOCKLIST): 
+                    return None
+                
+                try:
+                    # 【优化项】：超时设为 8 秒（平衡速度与海外慢速站点的成功率），加入真实 UA 伪装
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36'
+                    }
+                    resp = requests.get(url, timeout=8, headers=headers)
+                    if resp.status_code != 200: return None
                     
-                    # 【火力升级2】：max_results 搜索深度从 15 个提升至 60 个结果
-                    urls = duckduckgo_search(q, region=config.get("region", "wt-wt"), max_results=60) 
+                    html = resp.text
+                    soup = BeautifulSoup(html, 'html.parser')
                     
-                    for url in urls:
-                        if len(scored_leads) >= 5: break
-                        domain = urlparse(url).netloc.lower()
-                        if url in db_existing_urls or domain in seen or any(b in domain for b in PLATFORM_BLOCKLIST): continue
-                        try:
-                            # 【火力升级3】：放宽爬虫等待时间至 10 秒，防止海外本土站打开慢导致被跳过错杀
-                            html = requests.get(url, timeout=10, headers={'User-Agent': 'Mozilla/5.0'}).text
-                            soup = BeautifulSoup(html, 'html.parser')
-                            text = soup.get_text().lower()
+                    # 剥离脚本代码防止误匹配
+                    for script in soup(["script", "style"]):
+                        script.extract()
+                    
+                    # 【关键修复】：加入 separator=' ' 解决文本粘连导致的极高漏报率
+                    text = soup.get_text(separator=' ', strip=True).lower()
+                    
+                    # 立体拦截网：中国特征、无关行业、上市公司、黄页特征全部排掉
+                    if any(x in text for x in CHINA_GEO_BLOCKLIST + STRICT_BUSINESS_BLOCKLIST + IRRELEVANT_INDUSTRIES_BLOCKLIST + DIRECTORY_PAGE_BLOCKLIST): 
+                        return None
+                        
+                    if not any(b2b_kw in text for b2b_kw in B2B_REQUIRED_KEYWORDS): 
+                        return None
+                        
+                    matched = [kw for kw in final_keywords if kw.lower() in text]
+                    if not matched: 
+                        return None
+                    
+                    comp_name = soup.title.string.strip() if soup.title else domain
+                    emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
+                    
+                    return {
+                        "客户ID": f"CUS_{int(time.time())}_{random.randint(1000,9999)}", 
+                        "公司名": comp_name[:60], 
+                        "官网": url, 
+                        "邮箱": emails[0] if emails else "", 
+                        "联系方式": " | ".join(emails[:2]) if emails else "表单触达", 
+                        "匹配产品": matched[0], 
+                        "国家": display_country_name, 
+                        "状态": "未联系", 
+                        "添加时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                        "HTML内容": html,
+                        "域名": domain
+                    }
+                except: 
+                    return None
+            
+            with st.spinner("🚀 启用多线程并发探测网深挖中 (过滤黄页/平台/国内同行)，速度提升 500%..."):
+                for q_idx, q in enumerate(queries):
+                    if len(scored_leads) >= target_leads: break
+                    progress_text.write(f"🔄 正在并发扫描引擎结果: `{q}` (已斩获 {len(scored_leads)}/{target_leads})...")
+                    progress_bar.progress(min((q_idx + 1) / len(queries), 1.0))
+                    
+                    urls = duckduckgo_search(q, region=config.get("region", "wt-wt"), max_results=40) 
+                    
+                    # 💡 多线程并发验证：同时查验 10 个网站
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                        future_to_url = {executor.submit(evaluate_url, url): url for url in urls}
+                        
+                        for future in concurrent.futures.as_completed(future_to_url):
+                            if len(scored_leads) >= target_leads: break
                             
-                            if any(x in text for x in CHINA_GEO_BLOCKLIST + STRICT_BUSINESS_BLOCKLIST + IRRELEVANT_INDUSTRIES_BLOCKLIST): continue
-                            if not any(b2b_kw in text for b2b_kw in B2B_REQUIRED_KEYWORDS): continue
-                                
-                            matched = [kw for kw in final_keywords if kw.lower() in text]
-                            if not matched: continue
-                            
-                            comp_name = soup.title.string.strip() if soup.title else domain
-                            emails = list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', html)))
-                            
-                            scored_leads.append({"客户ID": f"CUS_{int(time.time())}_{random.randint(100,999)}", "公司名": comp_name[:60], "官网": url, "邮箱": emails[0] if emails else "", "联系方式": " | ".join(emails[:2]) if emails else "表单", "匹配产品": matched[0], "国家": display_country_name, "状态": "未联系", "添加时间": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), "HTML内容": html})
-                            seen.add(domain)
-                        except: pass
-                    time.sleep(1) # 防止搜太快被 DuckDuckGo 封锁
+                            result = future.result()
+                            if result and result["域名"] not in seen:
+                                domain = result.pop("域名")
+                                seen.add(domain)
+                                scored_leads.append(result)
+                                progress_text.write(f"✅ 捕获纯正海外独立经销商: {result['公司名']} (已斩获 {len(scored_leads)}/{target_leads})")
+                    
+                    time.sleep(1.5) # 防止请求过快引起防爬封锁
+                    
             progress_text.empty()
+            progress_bar.empty()
+            
             if scored_leads:
                 st.session_state.all_leads.extend(scored_leads)
                 st.session_state.excluded_domains = seen
                 st.session_state.current_page = (len(st.session_state.all_leads) - 1) // 5
                 for l in scored_leads: db.add_client(l)
-                st.success(f"🎉 成功筛选并斩获 {len(scored_leads)} 家全新优质 B2B 经销商！")
-            else: st.warning("未发现符合 B2B 标准的新线索，请尝试更换产品线或重试。")
+                st.success(f"🎉 大获全胜！成功清洗平台与同行，斩获 {len(scored_leads)} 家全新独立 B2B 经销商！")
+            else: 
+                st.warning("⚠️ 本轮未发现符合标准的纯正海外经销商独立站。这很正常！建议您：\n1. 点击按钮重新搜一次（组合词汇是随机生成的）\n2. 更换或增加新的产品线")
 
     if st.session_state.all_leads:
         total = len(st.session_state.all_leads)
